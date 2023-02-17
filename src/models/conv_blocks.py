@@ -1,0 +1,115 @@
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+from einops import rearrange, reduce
+from einops.layers.torch import Rearrange
+
+from src.models.helpers import *
+#  -------------------------------------------------------
+class WeightStandardizedConv2d(nn.Conv2d):
+    """
+    https://arxiv.org/abs/1903.10520
+    weight standardization purportedly works synergistically with group normalization
+    
+    SF: do not use einops
+    """
+
+    def forward(self, x):
+        eps = 1e-5 if x.dtype == torch.float32 else 1e-3
+
+        weight = self.weight
+        mean = torch.mean(weight, dim = [1, 2, 3], keepdim = True) 
+        var = torch.var(weight, unbiased = False, dim = [1, 2, 3], keepdim = True)
+        normalized_weight = (weight - mean) * (var + eps).rsqrt()
+
+        return F.conv2d(
+            x,
+            normalized_weight,
+            self.bias,
+            self.stride,
+            self.padding,
+            self.dilation,
+            self.groups,
+        )
+#  -------------------------------------------------------
+class conv_block(nn.Module):
+    def __init__(self, dim, dim_out, groups=8):
+        super().__init__()
+        self.proj = WeightStandardizedConv2d(dim, dim_out, 3, padding=1)
+        self.norm = nn.GroupNorm(groups, dim_out)
+        self.act = nn.SiLU()
+
+    def forward(self, x, scale_shift=None):
+        x = self.proj(x)
+        x = self.norm(x)
+
+        if exists(scale_shift):
+            scale, shift = scale_shift
+            x = x * (scale + 1) + shift
+
+        x = self.act(x)
+        return x
+#  -------------------------------------------------------
+class ResnetBlock(nn.Module):
+    """https://arxiv.org/abs/1512.03385"""
+
+    def __init__(self, in_channels, out_channels, 
+                 res_hidden = None, 
+                 time_emb_dim=None, groups=8):
+        super().__init__()
+        self.mlp = (
+            nn.Sequential(nn.SiLU(), 
+                          nn.Linear(time_emb_dim, out_channels * 2))
+            if exists(time_emb_dim) else None
+        )
+
+        if not res_hidden:
+            res_hidden = out_channels
+        
+        self.block1 = conv_block(in_channels, res_hidden, groups=groups)
+        self.block2 = conv_block(res_hidden, out_channels, groups=groups)
+        
+        
+        self.res_conv = nn.Conv2d(in_channels, out_channels, 1) if in_channels != out_channels else nn.Identity()
+
+    def forward(self, x, time_emb=None):
+        scale_shift = None
+        if exists(self.mlp) and exists(time_emb):
+            time_emb = self.mlp(time_emb)
+            time_emb = rearrange(time_emb, "b c -> b c 1 1")
+            scale_shift = time_emb.chunk(2, dim=1)
+
+        h = self.block1(x, scale_shift=scale_shift)
+        h = self.block2(h)
+        return h + self.res_conv(x)
+#  -------------------------------------------------------    
+def Upsample(dim, dim_out=None):
+    convT_kernel = 4
+    convT_stride = 2
+    convT_padding = 1
+    if not dim_out:
+        dim_out = dim
+    return nn.Sequential(
+        nn.ConvTranspose2d(in_channels=dim,
+                           out_channels=dim_out,
+                           kernel_size=convT_kernel, 
+                           stride=convT_stride, 
+                           padding=convT_padding),
+        nn.GroupNorm(max(1, dim_out//4), dim_out)
+    )  
+#  -------------------------------------------------------    
+def Downsample(dim, dim_out=None):
+    conv_kernel = 3
+    stride = 2
+    padding = 1
+    if not dim_out:
+        dim_out = dim
+    return nn.Sequential(
+                nn.Conv2d(in_channels=dim, 
+                          out_channels=dim_out,
+                          kernel_size=conv_kernel,
+                          stride=stride, padding=padding),
+                nn.GroupNorm(max(1, dim_out//4), dim_out))
+#  -------------------------------------------------------                    
+

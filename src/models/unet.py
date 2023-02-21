@@ -28,9 +28,9 @@ class Unet(nn.Module):
         init_dim = default(init_dim, dim)
         self.init_conv = nn.Conv2d(input_channels, init_dim, 1, padding=0) # changed to 1 and 0 from 7,3
 
-        dims = [init_dim, *map(lambda m: dim * m, dim_mults)]
+        dims = [init_dim, *map(lambda m: init_dim * m, dim_mults)] #dim*m
         in_out = list(zip(dims[:-1], dims[1:]))
-
+        
         block_klass = partial(ResnetBlock, groups=resnet_block_groups)
 
         # time embeddings
@@ -87,7 +87,7 @@ class Unet(nn.Module):
 
         self.out_dim = default(out_dim, channels)
 
-        self.final_res_block = block_klass(dim * 2, dim, time_emb_dim=time_dim)
+        self.final_res_block = block_klass(dim_in*2, dim, time_emb_dim=time_dim) # dim * 2
         self.final_conv = nn.Conv2d(dim, self.out_dim, 1)
 
     def forward(self, x, time, x_self_cond=None):
@@ -127,6 +127,6 @@ class Unet(nn.Module):
             x = upsample(x)
 
         x = torch.cat((x, r), dim=1)
-
+      
         x = self.final_res_block(x, t)
         return self.final_conv(x)

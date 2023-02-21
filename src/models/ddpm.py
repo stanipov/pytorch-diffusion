@@ -50,7 +50,8 @@ class Diffusion:
     
         return sqrt_alphas_cumprod_t * x_start + sqrt_one_minus_alphas_cumprod_t * noise
     
-    def loss(self, x_start, t, noise=None, loss_type="l1", fp16 = True):
+    def loss(self, x_start, t, noise=None, 
+             loss_type="l1", fp16 = torch.float16):
         
         if noise is None:
             noise = torch.randn_like(x_start)
@@ -59,23 +60,38 @@ class Diffusion:
                                 t = t, noise = noise)
         
         if fp16:
-            with torch.cuda.amp.autocast():
+            with torch.cuda.amp.autocast(dtype = fp16):
                 predicted_noise = self.model(x_noisy, t)
         else:
             predicted_noise = self.model(x_noisy, t)
         
         if loss_type == 'l1':
-            loss = F.l1_loss(noise, predicted_noise)
+            if fp16:
+                with torch.cuda.amp.autocast(dtype = fp16):
+                    loss = F.l1_loss(noise, predicted_noise)
+            else:
+                loss = F.l1_loss(noise, predicted_noise)
+
         elif loss_type == 'l2':
-            loss = F.mse_loss(noise, predicted_noise)
+            if fp16:
+                with torch.cuda.amp.autocast(dtype = fp16):
+                    loss = F.mse_loss(noise, predicted_noise)
+            else:
+                loss = F.mse_loss(noise, predicted_noise)
+
         elif loss_type == "huber":
-            loss = F.smooth_l1_loss(noise, predicted_noise)
+            if fp16:
+                with torch.cuda.amp.autocast(dtype = fp16):        
+                    loss = F.smooth_l1_loss(noise, predicted_noise)
+            else:
+                loss = F.smooth_l1_loss(noise, predicted_noise)
+
         else:
             raise NotImplementedError()
         
         return loss
     
-    def _p_sample(self, x, t, t_index, fp16 = True):
+    def _p_sample(self, x, t, t_index, fp16 = torch.float16):
         betas_t = extract(self.betas, t, x.shape)
         sqrt_one_minus_alphas_cumprod_t = extract(self.sqrt_one_minus_alphas_cumprod,
                                                   t, x.shape)
@@ -84,7 +100,7 @@ class Diffusion:
         # Use our model (noise predictor) to predict the mean
         with torch.no_grad():
             if fp16:
-                with torch.cuda.amp.autocast():
+                with torch.cuda.amp.autocast(dtype = fp16):
                     model_mean = sqrt_recip_alphas_t * (
                         x - betas_t * self.model(x, t) / sqrt_one_minus_alphas_cumprod_t)
                 
@@ -101,7 +117,7 @@ class Diffusion:
             return model_mean + torch.sqrt(posterior_variance_t) * noise 
         
         
-    def _p_sample_loop(self, shape, fp16 = True):
+    def _p_sample_loop(self, shape, fp16 = torch.float16):
         with torch.no_grad():
             device = next(self.model.parameters()).device
 

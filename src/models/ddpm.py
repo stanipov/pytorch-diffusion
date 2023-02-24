@@ -41,6 +41,9 @@ class Diffusion:
         self.posterior_variance = dif_params[4]
 
     def q_sample(self, x_start, t, noise = None):
+        """
+        Prior sample
+        """
         if noise is None:
             noise = torch.randn_like(x_start)
             

@@ -2,8 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from einops import rearrange, reduce
-from einops.layers.torch import Rearrange
+#from einops import rearrange, reduce
+#from einops.layers.torch import Rearrange
 
 from src.models.helpers import *
 #  -------------------------------------------------------
@@ -34,9 +34,9 @@ class WeightStandardizedConv2d(nn.Conv2d):
         )
 #  -------------------------------------------------------
 class conv_block(nn.Module):
-    def __init__(self, dim, dim_out, groups=8):
+    def __init__(self, dim, dim_out, groups = 8):
         super().__init__()
-        self.proj = WeightStandardizedConv2d(dim, dim_out, 3, padding=1)
+        self.proj = WeightStandardizedConv2d(dim, dim_out, 3, padding = 1)
         self.norm = nn.GroupNorm(groups, dim_out)
         self.act = nn.SiLU()
 
@@ -58,26 +58,30 @@ class ResnetBlock(nn.Module):
                  res_hidden = None, 
                  time_emb_dim=None, groups=8):
         super().__init__()
-        self.mlp = (
-            nn.Sequential(nn.SiLU(), 
-                          nn.Linear(time_emb_dim, out_channels * 2))
-            if exists(time_emb_dim) else None
-        )
+        
+        self.mlp = None
+        if exists(time_emb_dim):
+            self.mlp = nn.Sequential(nn.SiLU(), 
+                          nn.Linear(time_emb_dim, out_channels * 2)
+                          )
 
         if not res_hidden:
             res_hidden = out_channels
         
         self.block1 = conv_block(in_channels, res_hidden, groups=groups)
         self.block2 = conv_block(res_hidden, out_channels, groups=groups)
-        
-        
-        self.res_conv = nn.Conv2d(in_channels, out_channels, 1) if in_channels != out_channels else nn.Identity()
+                
+        if in_channels != out_channels:
+            self.res_conv = nn.Conv2d(in_channels, out_channels, 1)
+        else:
+            self.res_conv = nn.Identity()
 
-    def forward(self, x, time_emb=None):
+    def forward(self, x, time_emb = None):
         scale_shift = None
         if exists(self.mlp) and exists(time_emb):
             time_emb = self.mlp(time_emb)
-            time_emb = rearrange(time_emb, "b c -> b c 1 1")
+            #time_emb = rearrange(time_emb, "b c -> b c 1 1")
+            time_emb = time_emb.view(time_emb.shape[0], time_emb.shapep[1], 1, 1)
             scale_shift = time_emb.chunk(2, dim=1)
 
         h = self.block1(x, scale_shift=scale_shift)
@@ -112,4 +116,3 @@ def Downsample(dim, dim_out=None):
                           stride=stride, padding=padding),
                 nn.GroupNorm(max(1, dim_out//4), dim_out))
 #  -------------------------------------------------------                    
-

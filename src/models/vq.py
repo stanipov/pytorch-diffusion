@@ -37,6 +37,7 @@ class VectorQuantizer(nn.Module):
         # Flatten input
         flat_input = inputs.view(-1, self._embedding_dim)
         
+        # distances from z to embeddings e_j (z - e)^2 = z^2 + e^2 - 2 e * z
         # Calculate distances
         distances = (torch.sum(flat_input**2, dim=1, keepdim=True) 
                     + torch.sum(self._embedding.weight**2, dim=1)
@@ -60,8 +61,23 @@ class VectorQuantizer(nn.Module):
         perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1e-10)))
         
         # convert quantized from BHWC -> BCHW
-        # outputs: loss, quantized vector q_z, perplexity, and encodings
-        return loss, quantized.permute(0, 3, 1, 2).contiguous(), perplexity, encodings
+        # outputs: loss, quantized vector q_z, perplexity, encodings, and respective indeces
+        return loss, quantized.permute(0, 3, 1, 2).contiguous(), perplexity, encodings, encoding_indices
+    
+    def sample(self, encoding_indices, out_size, device = 'cuda'):
+        """
+        From a given encoding indeces produce a quantized output 
+        of "out_size"
+        """
+        encoding_indices=encoding_indices.view(-1,1)
+        encodings = torch.zeros(encoding_indices.shape[0], self._num_embeddings).to(device) 
+        encodings.scatter_(1, encoding_indices, 1)
+        z_q = torch.matmul(encodings, self._embedding.weight).view(-1, 
+                                                                   out_size[0], 
+                                                                   out_size[1], 
+                                                                   self._num_embeddings)
+        z_q = z_q.permute(0, 3, 1, 2).contiguous()
+        return z_q
 # -----------------------------------------------------------------------------------------
 
 class VectorQuantizerEMA(nn.Module):

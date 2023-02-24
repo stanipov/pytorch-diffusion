@@ -90,8 +90,8 @@ class Unet(nn.Module):
 
         self.out_dim = default(out_dim, channels)
 
-        self.final_res_block = conv_unit(dim_in*2, dim, time_emb_dim=time_dim) # dim * 2
-        self.final_conv = nn.Conv2d(dim, self.out_dim, 1)
+        self.final_res_block = conv_unit(dim_in*2, img_size, time_emb_dim=time_dim) # dim * 2
+        self.final_conv = nn.Conv2d(img_size, self.out_dim, 1)
         
         if num_classes:
             self.num_classes = num_classes

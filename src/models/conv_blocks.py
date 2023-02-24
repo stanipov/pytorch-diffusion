@@ -81,7 +81,7 @@ class ResnetBlock(nn.Module):
         if exists(self.mlp) and exists(time_emb):
             time_emb = self.mlp(time_emb)
             #time_emb = rearrange(time_emb, "b c -> b c 1 1")
-            time_emb = time_emb.view(time_emb.shape[0], time_emb.shapep[1], 1, 1)
+            time_emb = time_emb.view(time_emb.shape[0], time_emb.shape[1], 1, 1)
             scale_shift = time_emb.chunk(2, dim=1)
 
         h = self.block1(x, scale_shift=scale_shift)

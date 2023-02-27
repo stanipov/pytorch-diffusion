@@ -22,3 +22,5 @@ def save_grid_imgs(img_tensor, nrow, fname):
         out = 1
     return out
 
+def get_num_params(m):
+    return sum(p.numel() for p in m.parameters())

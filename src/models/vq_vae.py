@@ -42,8 +42,8 @@ class VQ_VAE(nn.Module):
         return self._encoder(x)
     
     def decode(self, z):
-        loss, z_q, perplexity, _, _  = self._vq(z)
-        return self._decoder(z_q), loss, perplexity
+        loss, z_q, perplexity, encodings, encoding_indices = self._vq(z)
+        return self._decoder(z_q), loss, perplexity, encodings, encoding_indices
     
     def forward(self, x):
         z = self.encode(x)

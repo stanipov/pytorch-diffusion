@@ -2,6 +2,7 @@
 from src.models.vq_vae import VQ_VAE
 from src.models.perceptual_loss import PerceptualLoss
 from src.utils.aux import unscale_tensor, save_grid_imgs, get_num_params
+import torch.nn.functional as F
 
 import torch
 from torch import optim
@@ -13,12 +14,13 @@ from torch.utils.data import Subset
 
 from tqdm import tqdm
 import time, os, json
-
+import numpy as np
 
 # to avoid IO errors with massive reading of the files
 import torch.multiprocessing
 torch.multiprocessing.set_sharing_strategy('file_system')
 
+# ===================================================================    
 def main(config_file):
     with open(config_file, 'r') as f:
         config = json.load(f)
@@ -157,7 +159,7 @@ def main(config_file):
     perplexity   = []
     percept_loss = []
 
-    ploss = PerceptualLoss(fp16)
+    ploss = PerceptualLoss(fp16).to(device)
     
     print(f'Training for {num_epochs} epochs')
     print(f'Sampling every {sample_every} epochs')

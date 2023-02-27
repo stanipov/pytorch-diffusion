@@ -53,7 +53,7 @@ class Diffusion:
     
         return sqrt_alphas_cumprod_t * x_start + sqrt_one_minus_alphas_cumprod_t * noise
     
-    def loss(self, x_start, t, noise=None, 
+    def loss(self, x_start, t, noise=None, x_self_cond = None, classes = None,
              loss_type="l1", fp16 = torch.float16):
         
         if noise is None:
@@ -63,53 +63,46 @@ class Diffusion:
                                 t = t, noise = noise)
         
         if fp16:
-            with torch.cuda.amp.autocast(dtype = fp16):
-                predicted_noise = self.model(x_noisy, t)
+            amp_enabled = True
         else:
-            predicted_noise = self.model(x_noisy, t)
+            amp_enabled = False
         
-        if loss_type == 'l1':
-            if fp16:
-                with torch.cuda.amp.autocast(dtype = fp16):
-                    loss = F.l1_loss(noise, predicted_noise)
-            else:
+        with torch.cuda.amp.autocast(dtype = fp16, enabled = amp_enabled):
+                predicted_noise = self.model(x_noisy, t, x_self_cond = x_self_cond, lbls = classes)
+
+        with torch.cuda.amp.autocast(dtype = fp16, enabled = amp_enabled):        
+            if loss_type == 'l1':
                 loss = F.l1_loss(noise, predicted_noise)
-
-        elif loss_type == 'l2':
-            if fp16:
-                with torch.cuda.amp.autocast(dtype = fp16):
-                    loss = F.mse_loss(noise, predicted_noise)
-            else:
+            
+            elif loss_type == 'l2':   
                 loss = F.mse_loss(noise, predicted_noise)
-
-        elif loss_type == "huber":
-            if fp16:
-                with torch.cuda.amp.autocast(dtype = fp16):        
-                    loss = F.smooth_l1_loss(noise, predicted_noise)
-            else:
+            
+            elif loss_type == "huber":
                 loss = F.smooth_l1_loss(noise, predicted_noise)
-
-        else:
-            raise NotImplementedError()
+            
+            else:
+                raise NotImplementedError()
         
         return loss
     
-    def _p_sample(self, x, t, t_index, fp16 = torch.float16):
+    def _p_sample(self, x, t, t_index, fp16 = torch.float16, x_self_cond = None, classes = None):
         betas_t = extract(self.betas, t, x.shape)
         sqrt_one_minus_alphas_cumprod_t = extract(self.sqrt_one_minus_alphas_cumprod,
                                                   t, x.shape)
         sqrt_recip_alphas_t = extract(self.sqrt_recip_alphas, t, x.shape)
         # Equation 11 in the paper
         # Use our model (noise predictor) to predict the mean
+    
+        if fp16:
+            amp_enabled = True
+        else:
+            amp_enabled = False
+            
         with torch.no_grad():
-            if fp16:
-                with torch.cuda.amp.autocast(dtype = fp16):
-                    model_mean = sqrt_recip_alphas_t * (
-                        x - betas_t * self.model(x, t) / sqrt_one_minus_alphas_cumprod_t)
-                
-            else:
+            with torch.cuda.amp.autocast(dtype = fp16, enabled = amp_enabled):
+                model_out = self.model(x_noisy, t, x_self_cond = x_self_cond, lbls = classes)
                 model_mean = sqrt_recip_alphas_t * (
-                        x - betas_t * self.model(x, t) / sqrt_one_minus_alphas_cumprod_t)
+                        x - betas_t * model_out / sqrt_one_minus_alphas_cumprod_t)
                 
         if t_index == 0:
             return model_mean
@@ -120,7 +113,7 @@ class Diffusion:
             return model_mean + torch.sqrt(posterior_variance_t) * noise 
         
         
-    def _p_sample_loop(self, shape, fp16 = torch.float16):
+    def _p_sample_loop(self, shape, fp16 = torch.float16, x_self_cond = None, classes = None):
         with torch.no_grad():
             device = next(self.model.parameters()).device
 
@@ -130,9 +123,11 @@ class Diffusion:
         imgs = []
 
         for i in tqdm(reversed(range(0, self.timesteps)), desc='sampling loop time step', total=self.timesteps):
-            img = self._p_sample(img, torch.full((b,), i, device=device, dtype=torch.long), i, fp16)
+            img = self._p_sample(img, torch.full((b,), i, device=device, dtype=torch.long), 
+                                 i, fp16, x_self_cond, classes)
             imgs.append(img.cpu())
         return imgs
 
-    def sample(self, image_size, batch_size=16, channels=3):
-        return self._p_sample_loop(shape=(batch_size, channels, image_size, image_size))
+    def sample(self, image_size, batch_size=16, channels=3, x_self_cond = None, classes = None, fp16 = torch.float16):
+        return self._p_sample_loop(shape=(batch_size, channels, image_size, image_size), 
+                                   fp16 = fp16, x_self_cond = x_self_cond, classes = classes)

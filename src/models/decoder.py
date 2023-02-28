@@ -21,10 +21,14 @@ class Decoder(nn.Module):
         conv_unit = partial(ResnetBlock, groups=resnet_grnorm_groups)
                     
         layers = []
+        
+        for i in range(resnet_stacks):
+            layers.append(conv_unit(in_out[0][1], in_out[0][1]))
+        
         for ind, (dim_out, dim_in) in enumerate(in_out):            
             for i in range(resnet_stacks):
                 layers.append(conv_unit(dim_in, dim_in))
-            layers.append(Residual(PreNorm(dim_in, LinearAttention(dim_in))))
+            #layers.append(Residual(PreNorm(dim_in, LinearAttention(dim_in))))
             layers.append(Upsample(dim_in, dim_out))
             
         self.post_dec = nn.Conv2d(dim_out, out_planes, 1, padding = 0)

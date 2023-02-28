@@ -24,9 +24,12 @@ class Encoder(nn.Module):
         for ind, (dim_in, dim_out) in enumerate(in_out):            
             for i in range(resnet_stacks):
                 layers.append(conv_unit(dim_in, dim_in))
-            layers.append(Residual(PreNorm(dim_in, LinearAttention(dim_in))))
+            #layers.append(Residual(PreNorm(dim_in, LinearAttention(dim_in))))
             layers.append(Downsample(dim_in, dim_out))
-            
+
+        for i in range(resnet_stacks):
+            layers.append(conv_unit(dim_out, dim_out))
+
         self.encoder = nn.Sequential(*layers)
         
     def forward(self, x):

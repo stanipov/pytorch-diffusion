@@ -1,7 +1,7 @@
 #!/home/sf/data/linux/pyenv/pt1/bin/python
 from src.models.vq_vae import VQ_VAE
 from src.models.perceptual_loss import PerceptualLoss
-from src.utils.aux import unscale_tensor, save_grid_imgs, get_num_params
+from src.utils.aux import unscale_tensor, save_grid_imgs, get_num_params, cos_schedule
 import torch.nn.functional as F
 
 import torch
@@ -77,6 +77,9 @@ def main(config_file):
     sample_every       = int(config['training']['sample_every'])
     save_every         = int(config['training']['save_every'])
     save_snapshot      = config['training']['save_snapshot']
+    percept_loss_factor = np.array(config['training']['percept_loss_factor']) if config['training']['percept_loss_factor'] else None
+    quatization_loss_factor = np.array(config['training']['quatization_loss_factor']) if config['training']['quatization_loss_factor'] else None
+    recon_loss_factor = np.array(config['training']['recon_loss_factor']) if config['training']['recon_loss_factor'] else None
 
 
     # optimizer
@@ -107,7 +110,10 @@ def main(config_file):
 
     if use_subset:
         print(f'\t{use_subset} of the total dataset will be used')
-        trainset = Subset(dataset, range(0, int(len(dataset)*use_subset)))
+        subset_idx = np.random.choice(len(dataset), size = int(len(dataset)*use_subset), replace = False).astype(int)
+        np.savetxt(f'{results_folder}/tain_idxs.dat', subset_idx)
+        dataset = Subset(dataset, subset_idx) #range(0,int(len(dataset)*use_subset))
+        print(f'\t{len(dataset)} of images will be used')
     else:
         print(f'Using whole of {len(dataset)} images')
     print(f'{num_classes} classes were found')
@@ -136,7 +142,8 @@ def main(config_file):
     print('Done')
     print(f'Model parameters: {get_num_params(model):,}')
     model = model.to(device)
-
+    ploss = PerceptualLoss(fp16).to(device)
+    
     optimizer = optim.AdamW(params = model.parameters(),lr = lr, betas=betas, eps = eps,  )
 
     scheduler = None
@@ -154,23 +161,34 @@ def main(config_file):
     else:
         scaler = None
 
+
+    # schedule gradual change of loss wight factors
+    print('Preparing loss factors schedules')
+    T = np.linspace(0, num_epochs, num_epochs)
+    q_loss_sch = cos_schedule(T, min(quatization_loss_factor), max(quatization_loss_factor), num_epochs) if quatization_loss_factor is not None else np.ones(num_epochs)
+    np.savetxt(f'{chkpts}/q_loss_sch.dat', q_loss_sch)
+    
+    percep_loss_sch = cos_schedule(T, min(percept_loss_factor), max(percept_loss_factor), num_epochs) if percept_loss_factor is not None else np.ones(num_epochs)
+    np.savetxt(f'{chkpts}/percep_loss_sch.dat', percep_loss_sch)
+    
+    rec_loss_sch = cos_schedule(T, min(recon_loss_factor), max(recon_loss_factor), num_epochs) if recon_loss_factor is not None else np.ones(num_epochs) 
+    np.savetxt(f'{chkpts}/rec_loss_sch.dat', rec_loss_sch)
+    
+    print(f'Training for {num_epochs} epochs')
+    print(f'Sampling every {sample_every} steps')
+    print(f'Saving every {save_every} steps')
+    print('---------------------------\n\t\tTraining\n---------------------------\n')
+    
     total_loss   = []
     quant_loss   = []
     perplexity   = []
     percept_loss = []
-
-    ploss = PerceptualLoss(fp16).to(device)
-    
-    print(f'Training for {num_epochs} epochs')
-    print(f'Sampling every {sample_every} epochs')
-    print(f'Saving every {save_every} epochs')
-    print('---------------------------\n\t\tTraining\n---------------------------\n')
     step = 1
-
+        
     x_original = next(iter(train_loader))
-    x_original = unscale_tensor(x_original[0])
-    save_grid_imgs(x_original, x_original.shape[0] // 8, f'{results_folder}/original-images.jpg')
-
+    x_original = x_original[0]
+    save_grid_imgs(unscale_tensor(x_original), x_original.shape[0] // 4, f'{results_folder}/original-images.jpg')
+    
     for epoch in range(num_epochs):
         progress_bar = tqdm(train_loader, desc=f'Train {epoch+1}', total = len(train_loader), leave=False, disable=False)
         for X in progress_bar:
@@ -181,9 +199,9 @@ def main(config_file):
             with torch.cuda.amp.autocast(dtype = fp16):
                 batch_recon, q_loss, perplexity_s, _, _ = model(batch)
                 recon_loss = F.smooth_l1_loss(batch, batch_recon)
-
-            p_loss = ploss(batch, batch_recon, 'huber')
-            loss = q_loss + p_loss + recon_loss
+                p_loss = ploss(batch, batch_recon, 'huber')
+                #p_loss = ploss(X[0], batch_recon.to('cpu'), 'huber').to(device)
+                loss = q_loss_sch[epoch]*q_loss + p_loss*percep_loss_sch[epoch] + recon_loss*rec_loss_sch[epoch]
 
             if scaler:
                 scaler.scale(loss).backward()
@@ -199,37 +217,45 @@ def main(config_file):
             percept_loss.append(p_loss.item())    
 
             msg_dict = {
-                f'Total {step} loss': f'{total_loss[-1]:.5f}',
-                f'Quantization loss': f'{quant_loss[-1]:.5f}',
-                f'Perceptual loss': f'{percept_loss[-1]:.5f}',
-                f'Perplexity': f'{perplexity[-1]:.5f}',
+                f'Step {step} loss': f'{total_loss[-1]:.5f}',
+                f'Quant loss': f'{quant_loss[-1]*q_loss_sch[epoch]:.5f}',
+                f'Percep loss': f'{percept_loss[-1]*percep_loss_sch[epoch]:.5f}',
+                f'Perplex': f'{perplexity[-1]:.5f}',
             }    
             progress_bar.set_postfix(msg_dict)
+            
 
             np.savetxt(f'{chkpts}/total_loss.dat', np.array(total_loss))
             np.savetxt(f'{chkpts}/quant_loss.dat', np.array(quant_loss))
             np.savetxt(f'{chkpts}/percept_loss.dat', np.array(percept_loss))
             np.savetxt(f'{chkpts}/perplex_loss.dat', np.array(perplexity))
 
-        # save generated images and checkpoints
-        if epoch != 0 and (epoch+1) % sample_every == 0:
-            x_recon, _, _, _, _ = model(x_original)
-            x_recon = unscale_tensor(x_recon)
-            save_grid_imgs(x_recon, x_recon.shape[0] // 8, f'{results_folder}/recon_imgs-{epoch+1}.jpg')
+            # save generated images and checkpoints
+            if step != 0 and (step+1) % sample_every == 0:
+                with torch.no_grad():
+                    x_recon, _, _, _, _ = model(x_original.to(device))
+                x_recon = unscale_tensor(x_recon)
+                save_grid_imgs(x_recon, x_recon.shape[0] // 4, f'{results_folder}/recon_imgs-{step+1}.jpg')
 
-        if epoch != 0 and (epoch+1) % save_every == 0:
-            checkpoint = {
-                'model': model.state_dict(),
-                'optimizer': optimizer.state_dict(),
-                'scaler': scaler.state_dict()
-            }
-            torch.save(checkpoint, f'{chkpts}/chkpt_{epoch+1}.pt')
-            torch.save(model.state_dict(), f'{chkpts}/model_fp32_{epoch+1}.pt')
+            if step != 0 and (step+1) % save_every == 0:
+                checkpoint = {
+                    'model': model.state_dict(),
+                    'optimizer': optimizer.state_dict(),
+                    'scaler': scaler.state_dict()
+                }
+                torch.save(checkpoint, f'{chkpts}/chkpt_{epoch+1}.pt')
+                torch.save(model.state_dict(), f'{chkpts}/model_fp32_{epoch+1}.pt')
+            step += 1
+            del batch
 
         if save_snapshot:
             torch.save(model.state_dict(), f'{chkpts}/model_snapshot.pt')
+        
+        if scheduler:
+            scheduler.step()
 
-        step += 1
+    torch.save(model.state_dict(), f'{chkpts}/final_model_{epoch}.pt')
+        
 # ===================================================================    
 if __name__ == '__main__':
     import argparse
@@ -249,4 +275,11 @@ if __name__ == '__main__':
     args = parser.parse_args()
     cfg_file = args.cfg
     
+    msg = """
+    ==============================================================
+       Training of Vq-VAE image compressor for latent diffusion
+     on ArtBench dataset (https://github.com/liaopeiyuan/artbench)
+    ==============================================================   
+    """
+    print(msg)
     main(cfg_file)

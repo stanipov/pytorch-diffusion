@@ -28,7 +28,7 @@ def main(config_file):
     # TORCH_CUDNN_V8_API_ENABLED=1 
     torch.backends.cudnn.enabled = True
     torch.backends.cudnn.benchmark = True
-    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.deterministic = False
     torch.backends.cudnn.allow_tf32 = True
 
     # model name
@@ -119,7 +119,8 @@ def main(config_file):
     print(f'{num_classes} classes were found')
 
     train_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size,
-                                              shuffle=True, num_workers=dataloader_workers)
+                                              shuffle=True, num_workers=dataloader_workers,
+                                              pin_memory = True)
     print('Done')
 
     # set the model
@@ -194,7 +195,7 @@ def main(config_file):
         for X in progress_bar:
             optimizer.zero_grad()
             batch_size = X[0].shape[0]
-            batch = X[0].to(device)
+            batch = X[0].to(device, non_blocking=True)
 
             with torch.cuda.amp.autocast(dtype = fp16):
                 batch_recon, q_loss, perplexity_s, _, _ = model(batch)

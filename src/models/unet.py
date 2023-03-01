@@ -12,32 +12,46 @@ class Unet(nn.Module):
         self,
         img_size,
         init_dim = None,
-        out_dim = None,
         dim_mults = (1, 2, 4, 8),
         time_dim = None,
-        channels = 3,
+        in_channels = 3,
+        out_channels = 3,
         self_condition = False,
         resnet_grnorm_groups = 4,
+        resnet_stacks = 2, 
         num_classes = None
     ):
+        """
+        img_size             - assuming square image of (img_size, img_size)
+        init_dim             - out planes from the pre-Unet layer (i.e. in_channels -> init_dim)
+        dim_mults            - tuple of multipliers to multiply element-wise init_dim,
+        time_dim             - dimensinality of time embeddings, if None: 4*img_size
+        in_channels          - number of input channels
+        out_channels         - number of output channels of the UNet
+        self_condition       - legace from Hugging Face implenetation. IDK
+        resnet_grnorm_groups - numbers for group norm for each  ResNet blocks
+        resnet_stacks        - number of ResNet blocks
+        num_classes          - number of classes
+        
+        """
         super().__init__()
 
         # determine dimensions
-        self.channels = channels
+        if not out_channels:
+            out_channels = in_channels
         self.self_condition = self_condition
-        input_channels = channels * (2 if self_condition else 1)
-
-        init_dim = default(init_dim, img_size)
-        self.init_conv = nn.Conv2d(input_channels, init_dim, 1, padding = 0) # changed to 1 and 0 from 7,3
-
-        dims = [init_dim, *map(lambda m: init_dim * m, dim_mults)] #dim*m
+        input_channels = in_channels * (2 if self_condition else 1)
+        init_dim = init_dim if init_dim else img_size
+        dims = [init_dim, *map(lambda m: init_dim * m, dim_mults)] 
         in_out = list(zip(dims[:-1], dims[1:]))
-        
-        conv_unit = partial(ResnetBlock, groups=resnet_grnorm_groups)
+        self.resnet_stacks = resnet_stacks
 
         # time embeddings
         if not time_dim:
             time_dim = img_size * 4
+        
+        self.init_conv = nn.Conv2d(input_channels, init_dim, 1, padding = 0)        
+        conv_unit = partial(ResnetBlock, groups=resnet_grnorm_groups)
 
         self.time_mlp = nn.Sequential(
             SinusoidalPositionEmbeddings(img_size),
@@ -55,10 +69,10 @@ class Unet(nn.Module):
             is_last = ind >= (num_resolutions - 1)
 
             self.downs.append(
+                nn.ModuleList([conv_unit(dim_in, dim_in, time_emb_dim=time_dim) for _ in range(self.resnet_stacks)])
+                +
                 nn.ModuleList(
                     [
-                        conv_unit(dim_in, dim_in, time_emb_dim=time_dim),
-                        conv_unit(dim_in, dim_in, time_emb_dim=time_dim),
                         Residual(PreNorm(dim_in, LinearAttention(dim_in))),
                         Downsample(dim_in, dim_out)
                         if not is_last
@@ -76,10 +90,10 @@ class Unet(nn.Module):
             is_last = ind == (len(in_out) - 1)
 
             self.ups.append(
+                nn.ModuleList([conv_unit(dim_out + dim_in, dim_out, time_emb_dim=time_dim) for _ in range(self.resnet_stacks)])
+                +
                 nn.ModuleList(
                     [
-                        conv_unit(dim_out + dim_in, dim_out, time_emb_dim=time_dim),
-                        conv_unit(dim_out + dim_in, dim_out, time_emb_dim=time_dim),
                         Residual(PreNorm(dim_out, LinearAttention(dim_out))),
                         Upsample(dim_out, dim_in)
                         if not is_last
@@ -88,15 +102,14 @@ class Unet(nn.Module):
                 )
             )
 
-        self.out_dim = default(out_dim, channels)
-
         self.final_res_block = conv_unit(dim_in*2, img_size, time_emb_dim=time_dim) # dim * 2
-        self.final_conv = nn.Conv2d(img_size, self.out_dim, 1)
+        self.final_conv = nn.Conv2d(img_size, out_channels, 1)
         
         if num_classes:
             self.num_classes = num_classes
             self.lbl_embeds = nn.Embedding(num_classes,time_dim)
 
+            
     def forward(self, x, time, x_self_cond=None, lbls = None):
         if self.self_condition:
             x_self_cond = default(x_self_cond, lambda: torch.zeros_like(x))
@@ -112,29 +125,32 @@ class Unet(nn.Module):
 
         h = []
 
-        for block1, block2, attn, downsample in self.downs:
-            x = block1(x, t)
-            h.append(x)
-
-            x = block2(x, t)
-            x = attn(x)
-            h.append(x)
-
-            x = downsample(x)
-
+        # downwards descent
+        for i, layer in enumerate(self.downs):
+            # iterate over resnet blocks
+            for block in layer[0:self.resnet_stacks]:
+                x = block(x,t)
+                h.append(x)
+            # attention
+            x = layer[self.resnet_stacks](x)
+            # downsampler
+            x = layer[-1](x)
+        
         x = self.mid_block1(x, t)
         x = self.mid_attn(x)
-        x = self.mid_block2(x, t)
-
-        for block1, block2, attn, upsample in self.ups:
-            x = torch.cat((x, h.pop()), dim=1)
-            x = block1(x, t)
-
-            x = torch.cat((x, h.pop()), dim=1)
-            x = block2(x, t)
-            x = attn(x)
-
-            x = upsample(x)
+        x = self.mid_block2(x, t)     
+                
+        # upwards ascent
+        for i, layer in enumerate(self.ups):
+            # iterate over resnet blocks
+            for bi, block in enumerate(layer[0:self.resnet_stacks]):
+                x_down = h.pop()
+                x = torch.cat((x,  x_down), dim=1)
+                x = block(x,t)
+            # attention
+            x = layer[self.resnet_stacks](x)
+            # upsampler
+            x = layer[-1](x)
 
         x = torch.cat((x, r), dim=1)
       

@@ -1,6 +1,7 @@
 from torchvision import utils
 import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
+import numpy as np
 
 
 def unscale_tensor(T):
@@ -22,5 +23,23 @@ def save_grid_imgs(img_tensor, nrow, fname):
         out = 1
     return out
 
+
 def get_num_params(m):
     return sum(p.numel() for p in m.parameters())
+    
+    
+def cos_schedule(t, xmax, xmin, Tmax):
+    return xmin + 0.5*(xmax-xmin)*(1 + np.cos(t/Tmax*np.pi))
+    
+    
+def running_mean(x, N):
+    return np.convolve(x, np.ones(N)/N, mode='valid')    
+  
+   
+def get_model_mem(model):
+    """
+    Calculates memory consumption by the model
+    """
+    mem_params = sum([param.nelement()*param.element_size() for param in model.parameters()])
+    mem_bufs = sum([buf.nelement()*buf.element_size() for buf in model.buffers()])
+    return mem_params + mem_bufs, mem_params, mem_bufs

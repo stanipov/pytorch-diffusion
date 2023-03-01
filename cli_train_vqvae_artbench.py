@@ -187,7 +187,7 @@ def main(config_file):
         
     x_original = next(iter(train_loader))
     x_original = x_original[0]
-    save_grid_imgs(unscale_tensor(x_original), x_original.shape[0] // 4, f'{results_folder}/original-images.jpg')
+    save_grid_imgs(unscale_tensor(x_original), x_original.shape[0] // 8, f'{results_folder}/original-images.jpg')
     
     for epoch in range(num_epochs):
         progress_bar = tqdm(train_loader, desc=f'Train {epoch+1}', total = len(train_loader), leave=False, disable=False)
@@ -235,7 +235,7 @@ def main(config_file):
                 with torch.no_grad():
                     x_recon, _, _, _, _ = model(x_original.to(device))
                 x_recon = unscale_tensor(x_recon)
-                save_grid_imgs(x_recon, x_recon.shape[0] // 4, f'{results_folder}/recon_imgs-{step+1}.jpg')
+                save_grid_imgs(x_recon, x_recon.shape[0] // 8, f'{results_folder}/recon_imgs-{step+1}.jpg')
 
             if step != 0 and (step+1) % save_every == 0:
                 checkpoint = {

@@ -28,8 +28,10 @@ def main(config_file):
     # TORCH_CUDNN_V8_API_ENABLED=1 
     torch.backends.cudnn.enabled = True
     torch.backends.cudnn.benchmark = True
-    torch.backends.cudnn.deterministic = False
+    torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.allow_tf32 = True
+    torch.backends.cuda.preferred_linalg_library(backend='default')
+    torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = True
 
     # model name
     model_name = config['model']['name']
@@ -191,6 +193,7 @@ def main(config_file):
     save_grid_imgs(unscale_tensor(x_original), x_original.shape[0] // 8, f'{results_folder}/original-images.jpg')
     
     for epoch in range(num_epochs):
+        t_start = time.time()
         progress_bar = tqdm(train_loader, desc=f'Train {epoch+1}', total = len(train_loader), leave=False, disable=False)
         for X in progress_bar:
             optimizer.zero_grad()
@@ -254,6 +257,7 @@ def main(config_file):
         
         if scheduler:
             scheduler.step()
+        print(f'\t---->Epoch {epoch} in {time.time() - t_start:.2f}')
 
     torch.save(model.state_dict(), f'{chkpts}/final_model_{epoch}.pt')
         

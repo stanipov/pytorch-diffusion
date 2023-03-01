@@ -31,7 +31,10 @@ class Decoder(nn.Module):
             #layers.append(Residual(PreNorm(dim_in, LinearAttention(dim_in))))
             layers.append(Upsample(dim_in, dim_out))
             
-        self.post_dec = nn.Conv2d(dim_out, out_planes, 1, padding = 0)
+        post_dec_lst = [conv_unit(dim_out, dim_out) for _ in range(resnet_stacks)] \
+                        + \
+                        [nn.Conv2d(dim_out, out_planes, 1, padding = 0)]
+        self.post_dec = nn.Sequential(*post_dec_lst)
         self.encoder = nn.Sequential(*layers)
         
     def forward(self, x):

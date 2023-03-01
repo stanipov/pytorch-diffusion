@@ -56,7 +56,7 @@ class ResnetBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels, 
                  res_hidden = None, 
-                 time_emb_dim=None, groups=8):
+                 time_emb_dim = None, groups=8):
         super().__init__()
         
         self.mlp = None

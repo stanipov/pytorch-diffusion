@@ -34,7 +34,9 @@ class Decoder(nn.Module):
         post_dec_lst = [conv_unit(dim_out, dim_out) for _ in range(resnet_stacks)] \
                         + \
                         [nn.Conv2d(dim_out, out_planes, 1, padding = 0)]
+        
         self.post_dec = nn.Sequential(*post_dec_lst)
+        #nn.Conv2d(dim_out, out_planes, 1, padding = 0)
         self.encoder = nn.Sequential(*layers)
         
     def forward(self, x):

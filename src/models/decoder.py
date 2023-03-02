@@ -11,7 +11,12 @@ class Decoder(nn.Module):
                  out_planes = 3,
                  plains_divs = [8, 4, 2, 1], 
                  resnet_grnorm_groups = 4,
-                 resnet_stacks = 2):
+                 resnet_stacks = 2,
+                 last_resnet = False,
+                 up_mode = 'bilinear',
+                 scale = 2,
+                 attention = False
+                 ):
         super().__init__()
            
         init_planes = in_planes // max(plains_divs)
@@ -28,15 +33,18 @@ class Decoder(nn.Module):
         for ind, (dim_out, dim_in) in enumerate(in_out):            
             for i in range(resnet_stacks):
                 layers.append(conv_unit(dim_in, dim_in))
-            #layers.append(Residual(PreNorm(dim_in, LinearAttention(dim_in))))
-            layers.append(Upsample(dim_in, dim_out))
+            if attention:
+                layers.append(Residual(PreNorm(dim_in, LinearAttention(dim_in))))
+            layers.append(Upsample(dim_in, dim_out, up_mode, scale))
             
-        post_dec_lst = [conv_unit(dim_out, dim_out) for _ in range(resnet_stacks)] \
-                        + \
-                        [nn.Conv2d(dim_out, out_planes, 1, padding = 0)]
+        if last_resnet:
+            post_dec_lst = [conv_unit(dim_out, dim_out) for _ in range(resnet_stacks)] \
+                            + \
+                            [nn.Conv2d(dim_out, out_planes, 1, padding = 0)]
+        else:
+            post_dec_lst = [nn.Conv2d(dim_out, out_planes, 1, padding = 0)]
         
         self.post_dec = nn.Sequential(*post_dec_lst)
-        #nn.Conv2d(dim_out, out_planes, 1, padding = 0)
         self.encoder = nn.Sequential(*layers)
         
     def forward(self, x):

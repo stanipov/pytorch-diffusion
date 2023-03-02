@@ -13,7 +13,15 @@ class VQ_VAE(nn.Module):
                  grnorm_groups = 8, 
                  resnet_stacks = 4, 
                  embed_dim = 1024, 
-                 commitment_cost = 0.25):
+                 commitment_cost = 0.25,
+                 last_resnet = False,
+                 down_mode = 'avg',
+                 down_kern = 2,
+                 down_attn = False,
+                 up_mode = 'bilinear',
+                 up_scale = 2,
+                 up_attn = False
+                 ):
         """
         VQ autoencoder
         Inputs:
@@ -29,13 +37,21 @@ class VQ_VAE(nn.Module):
                                init_planes=enc_init_ch, 
                                plains_mults=ch_mult, 
                                resnet_grnorm_groups=grnorm_groups, 
-                               resnet_stacks=resnet_stacks)
+                               resnet_stacks=resnet_stacks,
+                               last_resnet = last_resnet,
+                               downsample_mode = down_mode,
+                               pool_kern = down_kern,
+                               attention = down_attn)
         ch_mult.reverse()
         self._decoder = Decoder(in_planes=enc_init_ch*max(ch_mult), 
                                out_planes=img_ch, 
                                plains_divs=ch_mult, 
                                resnet_grnorm_groups=grnorm_groups, 
-                               resnet_stacks=resnet_stacks)
+                               resnet_stacks=resnet_stacks,
+                               last_resnet = last_resnet,
+                               up_mode = up_mode,
+                               scale = up_scale,
+                               attention = up_attn)
         self._vq = VectorQuantizer(enc_init_ch*max(ch_mult), embed_dim, commitment_cost)
         
     def encode(self, x):

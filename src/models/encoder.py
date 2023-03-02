@@ -11,7 +11,12 @@ class Encoder(nn.Module):
                 init_planes = 64, 
                 plains_mults = (1, 2, 4, 8), 
                 resnet_grnorm_groups = 4,
-                resnet_stacks = 2):
+                resnet_stacks = 2,
+                last_resnet = False,
+                downsample_mode = 'avg',
+                pool_kern = 2,
+                attention = False
+                ):
         super().__init__()
            
         dims = [init_planes, *map(lambda m: init_planes * m, plains_mults)] 
@@ -24,11 +29,13 @@ class Encoder(nn.Module):
         for ind, (dim_in, dim_out) in enumerate(in_out):            
             for i in range(resnet_stacks):
                 layers.append(conv_unit(dim_in, dim_in))
-            #layers.append(Residual(PreNorm(dim_in, LinearAttention(dim_in))))
-            layers.append(Downsample(dim_in, dim_out))
+            if attention:
+                layers.append(Residual(PreNorm(dim_in, LinearAttention(dim_in))))
+            layers.append(Downsample(dim_in, dim_out, downsample_mode, pool_kern))
 
-        for i in range(resnet_stacks):
-            layers.append(conv_unit(dim_out, dim_out))
+        if last_resnet:
+            for i in range(resnet_stacks):
+                layers.append(conv_unit(dim_out, dim_out))
 
         self.encoder = nn.Sequential(*layers)
         

@@ -87,8 +87,31 @@ class ResnetBlock(nn.Module):
         h = self.block1(x, scale_shift=scale_shift)
         h = self.block2(h)
         return h + self.res_conv(x)
-#  -------------------------------------------------------    
-def Upsample(dim, dim_out=None):
+#  ------------------------------------------------------- 
+def Upsample(dim, dim_out = None, conv = False, scale = 2):
+    if 'conv' in conv:
+        return UpsampleConv(dim, dim_out)
+    elif conv in ['nearest', 'linear', 'bilinear', 'bicubic', 'trilinear']:
+        return UpsampleInterp(dim, dim_out, conv, scale)
+    else:
+        raise ValueError(f"Expected conv ot be 'conv', 'nearest', 'linear', 'bilinear', 'bicubic', 'trilinear', got '{conv}'")
+    
+    
+def UpsampleInterp(dim, dim_out = None, interp = 'linear', scale = 2):
+    assert scale is not None and scale != 0, f'Scale must be specified!'
+    if not dim_out:
+            dim_out = dim
+    return nn.Sequential(
+        nn.Upsample(scale_factor=scale, mode=interp, align_corners=False),
+        nn.Conv2d(in_channels=dim,
+                  out_channels=dim_out, 
+                  kernel_size=3, 
+                  padding=1),
+        nn.GroupNorm(max(1, dim_out//4), dim_out)
+        )
+
+
+def UpsampleConv(dim, dim_out=None):
     convT_kernel = 4
     convT_stride = 2
     convT_padding = 1
@@ -103,7 +126,34 @@ def Upsample(dim, dim_out=None):
         nn.GroupNorm(max(1, dim_out//4), dim_out)
     )  
 #  -------------------------------------------------------    
-def Downsample(dim, dim_out=None):
+def Downsample(dim, dim_out = None, mode = 'avg', kern = 2):
+    if 'conv' in mode:
+        return DownsampleConv(dim, dim_out)
+    else:
+        assert kern is not None and kern != 0, f'Kernel size must be specified!'
+        return DownsamplePool(dim, dim_out, mode, kern)
+
+
+def DownsamplePool(dim, dim_out=None, mode = 'avg', kern = 2):
+    if 'avg' in mode or 'mean' in mode:
+        pooling = nn.AvgPool2d(kernel_size = kern)
+    elif 'max' in mode:
+        pooling = nn.MaxPool2d(kernel_size=kern)
+    else:
+        raise ValueError(f"Expected mode to be 'avg'/'mean' or 'max', got {mode} instead")
+    if not dim_out:
+        dim_out = dim
+    return nn.Sequential(
+            pooling, 
+            nn.Conv2d(in_channels=dim,
+                  out_channels=dim_out, 
+                  kernel_size=3, 
+                  padding=1),
+        nn.GroupNorm(max(1, dim_out//4), dim_out)
+    )
+
+
+def DownsampleConv(dim, dim_out=None):
     conv_kernel = 3
     stride = 2
     padding = 1
@@ -115,4 +165,4 @@ def Downsample(dim, dim_out=None):
                           kernel_size=conv_kernel,
                           stride=stride, padding=padding),
                 nn.GroupNorm(max(1, dim_out//4), dim_out))
-#  -------------------------------------------------------                    
+#  -------------------------------------------------------                     

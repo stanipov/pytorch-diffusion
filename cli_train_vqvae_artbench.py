@@ -15,6 +15,8 @@ from torch.utils.data import Subset
 from tqdm import tqdm
 import time, os, json
 import numpy as np
+from pprint import pprint
+from shutil import copy2
 
 # to avoid IO errors with massive reading of the files
 import torch.multiprocessing
@@ -24,7 +26,10 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 def main(config_file):
     with open(config_file, 'r') as f:
         config = json.load(f)
-        
+
+    print('\nThis config will be used\n')
+    pprint(config)           
+    
     # TORCH_CUDNN_V8_API_ENABLED=1 
     torch.backends.cudnn.enabled = True
     torch.backends.cudnn.benchmark = True
@@ -44,6 +49,9 @@ def main(config_file):
     chkpts         = os.path.join(cwd, *('results', model_name, 'chkpts'))
     os.makedirs(chkpts, exist_ok=True)
 
+    # copy the config
+    _f_dst = os.path.join(results_folder, 'train_config.json')
+    copy2(config_file, _f_dst)
 
     # Dataset params
     image_size = config['dataset']['image_size']
@@ -64,6 +72,13 @@ def main(config_file):
     resnet_stacks   = config['model']['resnet_stacks']
     embed_dim       = config['model']['embed_dim']
     commitment_cost = config['model']['commitment_cost']
+    last_resnet     = config['model']['last_resnet']
+    down_mode       = config['model']['down_mode']
+    down_kern       = config['model']['down_kern']
+    down_attn       = config['model']['down_attn']
+    up_mode         = config['model']['up_mode']
+    up_scale        = config['model']['up_scale']
+    up_attn         = config['model']['up_attn']
 
 
     # training params
@@ -136,7 +151,14 @@ def main(config_file):
         grnorm_groups   = groups_grnorm,
         resnet_stacks   = resnet_stacks,
         embed_dim       = embed_dim, 
-        commitment_cost = commitment_cost
+        commitment_cost = commitment_cost,
+        last_resnet     = last_resnet,
+        down_mode       = down_mode,
+        down_kern       = down_kern,
+        down_attn       = down_attn,
+        up_mode         = up_mode,
+        up_scale        = up_scale,
+        up_attn         = up_attn
     )
 
     if load:
@@ -180,13 +202,13 @@ def main(config_file):
     print(f'Training for {num_epochs} epochs')
     print(f'Sampling every {sample_every} steps')
     print(f'Saving every {save_every} steps')
-    print('---------------------------\n\t\tTraining\n---------------------------\n')
+    print('==============================================================\n\t\tTraining\n==============================================================\n')
     
     total_loss   = []
     quant_loss   = []
     perplexity   = []
     percept_loss = []
-    step = 1
+    step = 0
         
     x_original = next(iter(train_loader))
     x_original = x_original[0]
@@ -195,7 +217,13 @@ def main(config_file):
     for epoch in range(num_epochs):
         t_start = time.time()
         progress_bar = tqdm(train_loader, desc=f'Train {epoch+1}', total = len(train_loader), leave=False, disable=False)
-        for X in progress_bar:
+
+        avg_tot = 0
+        avg_quant = 0
+        avg_percep = 0
+        avg_perplex = 0
+
+        for bstep, X in enumerate(progress_bar):
             optimizer.zero_grad()
             batch_size = X[0].shape[0]
             batch = X[0].to(device, non_blocking=True)
@@ -220,6 +248,11 @@ def main(config_file):
             perplexity.append(perplexity_s.item())
             percept_loss.append(p_loss.item())    
 
+            avg_tot += total_loss[-1]
+            avg_quant += quant_loss[-1]
+            avg_percep += percept_loss[-1]
+            avg_perplex += perplexity[-1]
+
             msg_dict = {
                 f'Step {step} loss': f'{total_loss[-1]:.5f}',
                 f'Quant loss': f'{quant_loss[-1]*q_loss_sch[epoch]:.5f}',
@@ -239,7 +272,7 @@ def main(config_file):
                 with torch.no_grad():
                     x_recon, _, _, _, _ = model(x_original.to(device))
                 x_recon = unscale_tensor(x_recon)
-                save_grid_imgs(x_recon, x_recon.shape[0] // 8, f'{results_folder}/recon_imgs-{step+1}.jpg')
+                save_grid_imgs(x_recon, x_recon.shape[0] // 8, f'{results_folder}/recon_imgs-{step+1}-{epoch+1}.jpg')
 
             if step != 0 and (step+1) % save_every == 0:
                 checkpoint = {
@@ -247,8 +280,8 @@ def main(config_file):
                     'optimizer': optimizer.state_dict(),
                     'scaler': scaler.state_dict()
                 }
-                torch.save(checkpoint, f'{chkpts}/chkpt_{epoch+1}.pt')
-                torch.save(model.state_dict(), f'{chkpts}/model_fp32_{epoch+1}.pt')
+                torch.save(checkpoint, f'{chkpts}/chkpt_{step+1}-{epoch+1}.pt')
+                torch.save(model.state_dict(), f'{chkpts}/model_{step+1}-{epoch+1}.pt')
             step += 1
             del batch
 
@@ -256,10 +289,19 @@ def main(config_file):
             torch.save(model.state_dict(), f'{chkpts}/model_snapshot.pt')
         
         if scheduler:
-            scheduler.step()
-        print(f'\t---->Epoch {epoch} in {time.time() - t_start:.2f}')
+            scheduler.step()   
+        
+        avg_tot /= (bstep+1)
+        avg_quant /= (bstep+1)
+        avg_percep /= (bstep+1)
+        avg_perplex /= (bstep+1)
+        msg = f'\t----> loss: {avg_tot:<2.5f}, quant: {avg_quant:<2.5f}, percept {avg_percep:<2.5f}, perplex: {avg_perplex:<3.5f}'
+        print(f'\t----> Epoch {epoch+1} in {time.time() - t_start:.2f}')
+        print(msg)
 
-    torch.save(model.state_dict(), f'{chkpts}/final_model_{epoch}.pt')
+    torch.save(model.state_dict(), f'{chkpts}/final_model_{epoch+1}.pt')
+    print(f'Saved the final modet at\n\t{chkpts}/final_model_{epoch+1}.pt')
+    return 0
         
 # ===================================================================    
 if __name__ == '__main__':

@@ -31,6 +31,7 @@ def main(config_file):
     pprint(config)           
     
     # TORCH_CUDNN_V8_API_ENABLED=1 
+    os.environ['TORCH_CUDNN_V8_API_ENABLED'] = '1'
     torch.backends.cudnn.enabled = True
     torch.backends.cudnn.benchmark = True
     torch.backends.cudnn.deterministic = True

@@ -16,9 +16,13 @@ class Unet(nn.Module):
         time_dim = None,
         in_channels = 3,
         out_channels = 3,
+        down_mode = 'avg',
+        down_kern = 2,
+        up_mode = 'bilinear',
+        up_scale = 2,
+        resnet_stacks = 2,
         self_condition = False,
         resnet_grnorm_groups = 4,
-        resnet_stacks = 2, 
         num_classes = None
     ):
         """
@@ -32,7 +36,11 @@ class Unet(nn.Module):
         resnet_grnorm_groups - numbers for group norm for each  ResNet blocks
         resnet_stacks        - number of ResNet blocks
         num_classes          - number of classes
-        
+        down_mode:           - if "conv", then strided convolution is used, 
+                             "avg" ot "max" - average2D or maxPool2D are used respectively 
+        down_kern:           - Size of the pooling kernel, has effect only if down_mode is avg or max
+        up_mode:             - If 'conv", strided transposed convolution is used, otherwise, interpolation
+        up_scale             - Upscale interpolation factor, default 2
         """
         super().__init__()
 
@@ -156,3 +164,42 @@ class Unet(nn.Module):
       
         x = self.final_res_block(x, t)
         return self.final_conv(x)
+# ----------------------------------------------------------------------------------------
+    
+def set_unet(config_dict, weights = None):
+    img_size             = config_dict['img_size']
+    init_dim             = config_dict.pop('init_dim', None)   
+    dim_mults            = config_dict.pop('dim_mults', (1, 2, 4, 8))
+    time_dim             = config_dict.pop('time_dim', None)
+    in_channels          = config_dict.pop('in_channels', 3)
+    out_channels         = config_dict.pop('out_channels', 3)
+    self_condition       = config_dict.pop('self_condition', False)
+    resnet_grnorm_groups = config_dict.pop('resnet_grnorm_groups', 4)
+    resnet_stacks        = config_dict.pop('resnet_stacks', 2)
+    num_classes          = config_dict.pop('num_classes', None)
+    down_mode            = config_dict.pop('num_classes', 'avg')
+    down_kern            = config_dict.pop('down_kern', 2)
+    up_mode              = config_dict.pop('up_mode', 'bilinear')
+    up_scale             = config_dict.pop('up_scale', 2)
+    
+    model = Unet(
+        img_size             = img_size,
+        init_dim             = init_dim,
+        dim_mults            = dim_mults,
+        time_dim             = time_dim,
+        in_channels          = in_channels,
+        out_channels         = out_channels,
+        self_condition       = self_condition,
+        resnet_grnorm_groups = resnet_grnorm_groups,
+        resnet_stacks        = resnet_stacks, 
+        num_classes          = num_classes,
+        down_mode            = down_mode, 
+        down_kern            = down_kern,
+        up_mode              = up_mode,
+        up_scale             = up_scale
+    )
+    
+    if weights:
+        model.load_state_dict(torch.load(weights))
+        
+    return model

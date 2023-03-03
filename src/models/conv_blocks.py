@@ -88,7 +88,7 @@ class ResnetBlock(nn.Module):
         h = self.block2(h)
         return h + self.res_conv(x)
 #  ------------------------------------------------------- 
-def Upsample(dim, dim_out = None, conv = False, scale = 2):
+def Upsample(dim, dim_out = None, conv = 'bilinear', scale = 2):
     if 'conv' in conv:
         return UpsampleConv(dim, dim_out)
     elif conv in ['nearest', 'linear', 'bilinear', 'bicubic', 'trilinear']:

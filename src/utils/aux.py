@@ -2,6 +2,7 @@ from torchvision import utils
 import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
 import numpy as np
+from torchvision.transforms import ToPILImage
 
 
 def unscale_tensor(T):
@@ -16,12 +17,22 @@ def save_grid_imgs(img_tensor, nrow, fname):
     Saves a tensor into a grid image
     """
     out = 0
-    try:
-        grid_img = utils.make_grid(img_tensor.to('cpu'), nrow = nrow)
-        utils.save_image(grid_img, fp = fname)
-    except:
-        out = 1
-    return out
+    grid_img = utils.make_grid(img_tensor.to('cpu'), nrow = nrow)
+    utils.save_image(grid_img, fp = fname)
+    #try:
+    #    grid_img = utils.make_grid(img_tensor.to('cpu'), nrow = nrow)
+    #    utils.save_image(grid_img, fp = fname)
+    #except Exception as err:
+    #    out = 1
+    #return out
+
+
+def show_grid_tensor(x, nrow = 8):
+    T2img    = ToPILImage()
+    x_unsc   = unscale_tensor(x)
+    grid_img = utils.make_grid(x_unsc.to('cpu'), nrow = nrow)
+    return T2img(grid_img)
+
 
 
 def get_num_params(m):

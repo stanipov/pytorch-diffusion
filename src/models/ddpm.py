@@ -46,11 +46,11 @@ class Diffusion:
         """
         if noise is None:
             noise = torch.randn_like(x_start)
-            
+                  
         sqrt_alphas_cumprod_t = extract(self.sqrt_alphas_cumprod, t, x_start.shape)
         sqrt_one_minus_alphas_cumprod_t = extract(
-            self.sqrt_one_minus_alphas_cumprod, t, x_start.shape)
-    
+            self.sqrt_one_minus_alphas_cumprod, t, x_start.shape)      
+                     
         return sqrt_alphas_cumprod_t * x_start + sqrt_one_minus_alphas_cumprod_t * noise
     
     def loss(self, x_start, t, noise=None, x_self_cond = None, classes = None,
@@ -69,6 +69,10 @@ class Diffusion:
         
         with torch.cuda.amp.autocast(dtype = fp16, enabled = amp_enabled):
                 predicted_noise = self.model(x_noisy, t, x_self_cond = x_self_cond, lbls = classes)
+                       
+        #print(f'x_start        : {x_start.shape}')   
+        #print(f'noise          : {noise.shape}')        
+        #print(f'predicted_noise: {predicted_noise.shape}')        
 
         with torch.cuda.amp.autocast(dtype = fp16, enabled = amp_enabled):        
             if loss_type == 'l1':
@@ -100,7 +104,7 @@ class Diffusion:
             
         with torch.no_grad():
             with torch.cuda.amp.autocast(dtype = fp16, enabled = amp_enabled):
-                model_out = self.model(x_noisy, t, x_self_cond = x_self_cond, lbls = classes)
+                model_out = self.model(x, t, x_self_cond = x_self_cond, lbls = classes)
                 model_mean = sqrt_recip_alphas_t * (
                         x - betas_t * model_out / sqrt_one_minus_alphas_cumprod_t)
                 

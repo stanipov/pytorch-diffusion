@@ -44,8 +44,12 @@ class Decoder(nn.Module):
         else:
             post_dec_lst = [nn.Conv2d(dim_out, out_planes, 1, padding = 0)]
         
-        self.post_dec = nn.Sequential(*post_dec_lst)
-        self.encoder = nn.Sequential(*layers)
+        layers += post_dec_lst
+        self.decoder = nn.Sequential(*layers)
+        
+        #self.post_dec = nn.Sequential(*post_dec_lst)
+        #self.encoder = nn.Sequential(*layers)
         
     def forward(self, x):
-        return self.post_dec(self.encoder(x))
+        return self.decoder(x)
+        #return self.post_dec(self.encoder(x))

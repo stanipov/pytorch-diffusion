@@ -23,7 +23,8 @@ class Encoder(nn.Module):
         in_out = list(zip(dims[:-1], dims[1:]))
         
         conv_unit = partial(ResnetBlock, groups=resnet_grnorm_groups)
-        self.init_conv = nn.Conv2d(in_planes, init_planes, 1, padding = 0)
+        #self.init_conv = nn.Conv2d(in_planes, init_planes, 1, padding = 0)
+        init_conv = [nn.Conv2d(in_planes, init_planes, 1, padding = 0)]
                 
         layers = []
         for ind, (dim_in, dim_out) in enumerate(in_out):            
@@ -37,7 +38,10 @@ class Encoder(nn.Module):
             for i in range(resnet_stacks):
                 layers.append(conv_unit(dim_out, dim_out))
 
+        #self.encoder = nn.Sequential(*layers)
+        layers = init_conv + layers
         self.encoder = nn.Sequential(*layers)
         
     def forward(self, x):
-        return self.encoder(self.init_conv(x))
+        return self.encoder(x)
+        #return self.encoder(self.init_conv(x))

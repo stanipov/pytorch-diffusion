@@ -101,8 +101,12 @@ def UpsampleInterp(dim, dim_out = None, interp = 'linear', scale = 2):
     assert scale is not None and scale != 0, f'Scale must be specified!'
     if not dim_out:
             dim_out = dim
+    if interp in ['linear', 'bilinear', 'bicubic' , 'trilinear']:
+        align_corners = True
+    else:
+        align_corners = None
     return nn.Sequential(
-        nn.Upsample(scale_factor=scale, mode=interp, align_corners=False),
+        nn.Upsample(scale_factor=scale, mode=interp, align_corners=align_corners),
         nn.Conv2d(in_channels=dim,
                   out_channels=dim_out, 
                   kernel_size=3, 

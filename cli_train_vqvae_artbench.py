@@ -1,4 +1,5 @@
 #!/home/sf/data/linux/pyenv/pt1/bin/python
+from src.datasets.artbench import artbench_hires, artbench256
 from src.models.vq_vae import VQ_VAE
 from src.models.perceptual_loss import PerceptualLoss
 from src.utils.aux import unscale_tensor, save_grid_imgs, get_num_params, cos_schedule
@@ -113,17 +114,10 @@ def main(config_file):
 
 
     print('Setting the dataset')
-    if channels == 1:
-        transform = transforms.Compose([(transforms.Grayscale(num_output_channels=1),transforms.Resize(image_size, interpolation='BICUBIC')) 
-                                        if img_resize else transforms.Grayscale(num_output_channels=1),
-                                        transforms.ToTensor(), 
-                                        transforms.Lambda(lambda t: (t * 2) - 1)])
+    if img_resize and image_size > 256:
+        dataset = artbench_hires(root, image_size=image_size)
     else:
-        transform = transforms.Compose([(transforms.Resize(image_size, interpolation='BICUBIC'), transforms.ToTensor()) 
-                                        if img_resize else transforms.ToTensor(), 
-                                        transforms.Lambda(lambda t: (t * 2) - 1)])       
-
-    dataset = torchvision.datasets.ImageFolder(root = root, loader=Image.open, transform = transform)
+        dataset = artbench256(root)
     num_classes = len(dataset.classes)
 
     if use_subset:
@@ -325,7 +319,7 @@ if __name__ == '__main__':
     
     msg = """
     ==============================================================
-       Training of Vq-VAE image compressor for latent diffusion
+       Training of VQ-VAE image compressor for latent diffusion
      on ArtBench dataset (https://github.com/liaopeiyuan/artbench)
     ==============================================================   
     """

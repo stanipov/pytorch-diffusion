@@ -11,8 +11,10 @@ def artbench256(root):
     
 def artbench_hires(root, image_size = False):
     if image_size:
-        transform = transforms.Compose([transforms.Resize(int(np.ceil(image_size*1.25)), 
-                                                            interpolation=transforms.InterpolationMode.BICUBIC, antialias = True),
+        #int(np.ceil(image_size*1.25)
+        transform = transforms.Compose([transforms.Resize(image_size,
+                                        interpolation=transforms.InterpolationMode.BICUBIC,
+                                        antialias = True),
                                         transforms.CenterCrop(image_size),
                                         transforms.ToTensor(),
                                         transforms.Lambda(lambda t: (t * 2) - 1)]) 

@@ -1,4 +1,4 @@
-import torch
+import torch, time
 import torch.nn.functional as F
 from tqdm import tqdm
 
@@ -28,7 +28,7 @@ def forward_diffusion_params(noise_scheduler, timesteps):
 #  -------------------------------------------------------
 
 class Diffusion:
-    def __init__(self, noise_scheduler, model, timesteps = 100):
+    def __init__(self, noise_scheduler, model, timesteps = 100, sample_every = 10):
         
         self.noise_scheduler = noise_scheduler
         self.model = model
@@ -39,6 +39,7 @@ class Diffusion:
         self.sqrt_alphas_cumprod = dif_params[2]
         self.sqrt_one_minus_alphas_cumprod = dif_params[3]
         self.posterior_variance = dif_params[4]
+        self.sample_every = sample_every
 
     def q_sample(self, x_start, t, noise = None):
         """
@@ -117,7 +118,8 @@ class Diffusion:
             return model_mean + torch.sqrt(posterior_variance_t) * noise 
         
         
-    def _p_sample_loop(self, shape, fp16 = torch.float16, x_self_cond = None, classes = None):
+    def _p_sample_loop(self, shape, fp16 = torch.float16, x_self_cond = None, classes = None, return_all_steps = False):
+        t_now = time.time()
         with torch.no_grad():
             device = next(self.model.parameters()).device
 
@@ -125,12 +127,29 @@ class Diffusion:
         # start from pure noise (for each example in the batch)
         img = torch.randn(shape, device=device)
         imgs = []
+        
+        progress_bar = tqdm(reversed(range(0, self.timesteps)), desc=f'Sampling every {self.sample_every}', 
+                            total = self.timesteps,
+                            mininterval = 1.0,  
+                            colour = '#FFCC00')
 
-        for i in tqdm(reversed(range(0, self.timesteps)), desc='sampling loop time step', total=self.timesteps):
-            img = self._p_sample(img, torch.full((b,), i, device=device, dtype=torch.long), 
-                                 i, fp16, x_self_cond, classes)
-            imgs.append(img.cpu())
-        return imgs
+        #for i in tqdm(reversed(range(0, self.timesteps)), desc=f'Sampling every {self.sample_every}', total=self.timesteps):
+        for i in progress_bar:
+            if i % self.sample_every == 0 or i == 0:
+#                print(f'\n{i}\n')
+                img = self._p_sample(img, torch.full((b,), i, device=device, dtype=torch.long), 
+                                     i, fp16, x_self_cond, classes)
+            if return_all_steps:                 
+                    imgs.append(img.cpu())
+        msg_dict = {
+                f'Sampled in': f'{time.time()-t_now:.2f} seconds',
+            }    
+        progress_bar.set_postfix(msg_dict)
+        if return_all_steps:
+            return imgs
+        else:
+            return img
+            
 
     def sample(self, image_size, batch_size=16, channels=3, x_self_cond = None, classes = None, fp16 = torch.float16):
         return self._p_sample_loop(shape=(batch_size, channels, image_size, image_size), 

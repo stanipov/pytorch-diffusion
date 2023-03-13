@@ -1,6 +1,9 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
+from torch import einsum
+from einops import rearrange
 #  -------------------------------------------------------
 """
 The code below is adopted from https://github.com/zalandoresearch/pytorch-vq-vae/blob/master/vq-vae.ipynb 
@@ -15,6 +18,74 @@ dimensionality of each vector in the latent space, e.g. 256.
 """
 # -----------------------------------------------------------------------------------------
 class VectorQuantizer(nn.Module):
+    """
+    Credit to 
+    https://github.com/CompVis/taming-transformers/blob/master/taming/modules/vqvae/quantize.py
+    
+    Improved version over VectorQuantizer, can be used as a drop-in replacement. Mostly
+    avoids costly matrix multiplications and allows for post-hoc remapping of indices.
+    """
+    # NOTE: due to a bug the beta term was applied to the wrong term. for
+    # backwards compatibility we use the buggy version by default, but you can
+    # specify legacy=False to fix it.
+    def __init__(self, num_embeddings, embedding_dim, commitment_cost, unknown_index="random",
+                 sane_index_shape=False):
+        super().__init__()
+        self.n_e = num_embeddings
+        self.e_dim = embedding_dim
+        self.beta = commitment_cost
+
+        self.embedding = nn.Embedding(self.n_e, self.e_dim)
+        self.embedding.weight.data.uniform_(-1.0 / self.n_e, 1.0 / self.n_e)
+
+        self.sane_index_shape = sane_index_shape
+
+
+    def forward(self, z):
+        # reshape z -> (batch, height, width, channel) and flatten
+        # convert inputs from BCHW -> BHWC
+        #z = rearrange(z, 'b c h w -> b h w c').contiguous()
+        z = z.permute(0, 2, 3, 1).contiguous())
+        z_flattened = z.view(-1, self.e_dim)
+        # distances from z to embeddings e_j (z - e)^2 = z^2 + e^2 - 2 e * z
+
+        d = torch.sum(z_flattened ** 2, dim=1, keepdim=True) + \
+            torch.sum(self.embedding.weight**2, dim=1) - 2 * \
+            torch.einsum('bd,dn->bn', z_flattened, rearrange(self.embedding.weight, 'n d -> d n'))
+
+        min_encoding_indices = torch.argmin(d, dim=1)
+        z_q = self.embedding(min_encoding_indices).view(z.shape)
+        perplexity = None
+        min_encodings = None
+
+        loss = torch.mean((z_q.detach()-z)**2) + self.beta * \
+                   torch.mean((z_q - z.detach()) ** 2)
+
+        # preserve gradients
+        z_q = z + (z_q - z).detach()
+
+        # reshape back to match original input shape
+        z_q = rearrange(z_q, 'b h w c -> b c h w').contiguous()
+
+        if self.sane_index_shape:
+            min_encoding_indices = min_encoding_indices.reshape(
+                z_q.shape[0], z_q.shape[2], z_q.shape[3])
+        # loss, quantized.permute(0, 3, 1, 2).contiguous(), perplexity, encodings, encoding_indices
+        return loss, z_q, perplexity, min_encodings, min_encoding_indices
+
+    def get_codebook_entry(self, indices, shape):
+        # get quantized latent vectors
+        z_q = self.embedding(indices)
+
+        if shape is not None:
+            z_q = z_q.view(shape)
+            # reshape back to match original input shape
+            z_q = z_q.permute(0, 3, 1, 2).contiguous()
+
+        return z_q
+# -----------------------------------------------------------------------------------------
+
+class old_VectorQuantizer(nn.Module):
     """
     Respectfully borrowed from 
     https://github.com/zalandoresearch/pytorch-vq-vae/blob/master/vq-vae.ipynb

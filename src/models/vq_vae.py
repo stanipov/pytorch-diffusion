@@ -10,7 +10,7 @@ from typing import Tuple, Optional
 
 import json
 # ------------------------------------------------------------------------------------------------------------   
-from typing import Tuple, Optional
+from typing import Tuple, Optional, List
 
 class VQModel(nn.Module):
     def __init__(self, 
@@ -28,9 +28,12 @@ class VQModel(nn.Module):
                  down_attn: Optional[bool] = False,
                  up_mode: str = 'bilinear',
                  up_scale: int = 2,
-                 up_attn: Optional[bool] = False,
+                 up_attn: Optional[List[int]] = [],
+                 attn_heads: Optional[int] = 4,
+                 attn_dim: Optional[int] = 8,
                  eps: Optional[float] = 1e-6,
-                 scaling_factor: float = 0.18215
+                 legacy_mid: Optional[bool] = False,
+                 scaling_factor: Optional[float] = 0.18215
                  ):
         """
         VQ autoencoder
@@ -66,7 +69,10 @@ class VQModel(nn.Module):
                                  pool_kern = down_kern,
                                  attention = down_attn,
                                  latent_dim = latent_dim,
-                                 eps = eps)
+                                 eps = eps,
+                                 legacy_mid = legacy_mid,
+                                 attn_heads = attn_heads,
+                                 attn_dim = attn_dim)
 
         
         ch_mult = tuple(reversed(list(ch_mult)))
@@ -79,7 +85,10 @@ class VQModel(nn.Module):
                                  up_mode = up_mode,
                                  scale = up_scale,
                                  attention = up_attn,
-                                 eps = eps)
+                                 eps = eps,
+                                 legacy_mid = legacy_mid,
+                                 attn_heads = attn_heads,
+                                 attn_dim = attn_dim)
                                  
         vq_embed_dim = vq_embed_dim if vq_embed_dim is not None else latent_dim
         self._vq = VectorQuantizer(num_vq_embeddings, vq_embed_dim, commitment_cost)
@@ -117,12 +126,15 @@ def set_VQModel(config, load = False):
     commitment_cost   = cfg.get('commitment_cost', 0.25)
     down_mode         = cfg.get('down_mode', 'max')
     down_kern         = cfg.get('down_kern', 2)
-    down_attn         = cfg.get('down_attn', False)
+    down_attn         = cfg.get('down_attn', [])
     up_mode           = cfg.get('up_mode', 'nearest')
     up_scale          = cfg.get('up_scale', 2)
-    up_attn           = cfg.get('up_attn', False)
+    up_attn           = cfg.get('up_attn', [])
     eps               = cfg.get('eps', 1e-6)
     scaling_factor    = cfg.get('scaling_factor', 0.18215)
+    attn_heads        = cfg.get('attn_heads', None)
+    attn_dim          = cfg.get('attn_dim', None)
+    legacy_mid        = cfg.get('legacy_mid', False)
     
     _model = VQModel(
         img_ch = img_ch,
@@ -141,20 +153,18 @@ def set_VQModel(config, load = False):
         up_scale = up_scale,
         up_attn = up_attn,
         eps = eps,
-        scaling_factor = scaling_factor
+        scaling_factor = scaling_factor,
+        attn_heads =attn_heads,
+        attn_dim = attn_dim,
+        legacy_mid = legacy_mid
     )
 
     if load:
-        print(f'\tLoading the pretrined weights from\n\t{load}')
+        print(f'\tLoading the pretrained weights from\n\t{load}')
         status = _model.load_state_dict(torch.load(load))
-        print(status)
+        print(f'\t{status}')
     
     return _model
-
-
-
-
-
 
 
 # ***************************************************************************************************************   

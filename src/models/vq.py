@@ -35,8 +35,8 @@ class VectorQuantizer(nn.Module):
         self.e_dim = embedding_dim
         self.beta = commitment_cost
 
-        self.embedding = nn.Embedding(self.n_e, self.e_dim)
-        self.embedding.weight.data.uniform_(-1.0 / self.n_e, 1.0 / self.n_e)
+        self._embedding = nn.Embedding(self.n_e, self.e_dim)
+        self._embedding.weight.data.uniform_(-1.0 / self.n_e, 1.0 / self.n_e)
 
         self.sane_index_shape = sane_index_shape
 
@@ -45,16 +45,16 @@ class VectorQuantizer(nn.Module):
         # reshape z -> (batch, height, width, channel) and flatten
         # convert inputs from BCHW -> BHWC
         #z = rearrange(z, 'b c h w -> b h w c').contiguous()
-        z = z.permute(0, 2, 3, 1).contiguous())
+        z = z.permute(0, 2, 3, 1).contiguous()
         z_flattened = z.view(-1, self.e_dim)
+        
         # distances from z to embeddings e_j (z - e)^2 = z^2 + e^2 - 2 e * z
-
         d = torch.sum(z_flattened ** 2, dim=1, keepdim=True) + \
-            torch.sum(self.embedding.weight**2, dim=1) - 2 * \
-            torch.einsum('bd,dn->bn', z_flattened, rearrange(self.embedding.weight, 'n d -> d n'))
+            torch.sum(self._embedding.weight**2, dim=1) - 2 * \
+            torch.einsum('bd,dn->bn', z_flattened, rearrange(self._embedding.weight, 'n d -> d n'))
 
         min_encoding_indices = torch.argmin(d, dim=1)
-        z_q = self.embedding(min_encoding_indices).view(z.shape)
+        z_q = self._embedding(min_encoding_indices).view(z.shape)
         perplexity = None
         min_encodings = None
 
@@ -75,7 +75,7 @@ class VectorQuantizer(nn.Module):
 
     def get_codebook_entry(self, indices, shape):
         # get quantized latent vectors
-        z_q = self.embedding(indices)
+        z_q = self._embedding(indices)
 
         if shape is not None:
             z_q = z_q.view(shape)

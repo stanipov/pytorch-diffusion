@@ -18,10 +18,18 @@ class Decoder2(nn.Module):
                  last_resnet = False,
                  up_mode = 'bilinear',
                  scale = 2,
-                 attention = False,
-                 eps = 1e-6
+                 attention = [],
+                 attn_heads = None,
+                 attn_dim = None,
+                 eps = 1e-6,
+                 legacy_mid = False
                  ):
         super().__init__()
+        
+        if not attn_heads:
+            attn_heads = 4
+        if not attn_dim:
+            attn_dim = 32
            
         dims = [init_planes, *map(lambda m: init_planes * m, plains_divs[::-1])] 
         in_out = list(zip(dims[:-1], dims[1:]))[::-1]
@@ -33,9 +41,17 @@ class Decoder2(nn.Module):
         self.conv_in = WeightStandardizedConv2d(in_channels=in_planes, 
                                                 out_channels=init_planes*max(plains_divs), 
                                                 kernel_size=3, padding=1)
+
+        # mid block (mirroring such of the encoder)
         _layer = []
-        for i in range(resnet_stacks):
-            _layer.append(conv_unit(init_planes*max(plains_divs), init_planes*max(plains_divs)))
+        _in_planes = init_planes*max(plains_divs)
+        if legacy_mid:
+            for i in range(resnet_stacks):
+                _layer.append(conv_unit(_in_planes, _in_planes))
+        else:
+            _layer.append(conv_unit(_in_planes, _in_planes))
+            _layer.append(Residual(PreNorm(_in_planes, LinearAttention(_in_planes, attn_heads, attn_dim) )) )
+            _layer.append(conv_unit(_in_planes, _in_planes))
         self.mid_block = nn.Sequential(*_layer)
         
         _layer = [] 
@@ -43,8 +59,8 @@ class Decoder2(nn.Module):
             is_last = ind == len(in_out) - 1
             for i in range(resnet_stacks):
                 _layer.append(conv_unit(dim_in, dim_in))
-            if attention:
-                _layer.append(Residual(PreNorm(dim_in, LinearAttention(dim_in))))
+            if dim_in in attention:
+                _layer.append(Residual(PreNorm(dim_in, LinearAttention(dim_in, attn_heads, attn_dim))))
             if is_last:
                 _up = WeightStandardizedConv2d(in_channels=dim_in, 
                                                out_channels=dim_out, 

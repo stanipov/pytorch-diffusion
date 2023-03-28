@@ -32,6 +32,9 @@ class Encoder2(nn.Module):
            
         dims = [init_planes, *map(lambda m: init_planes * m, plains_mults)] 
         in_out = list(zip(dims[:-1], dims[1:]))
+        #print(f'\t\tEncoder: init_planes {init_planes}')
+        #print(f'\t\tEncoder: plains_mults {plains_mults}')
+        #print(f'\t\tEncoder: {in_out}')
         
         conv_unit = partial(ResnetBlock, groups=resnet_grnorm_groups)
         self.init_conv = nn.Conv2d(in_planes, init_planes, 3, padding = 1)
@@ -41,7 +44,8 @@ class Encoder2(nn.Module):
             is_last = ind == len(in_out) - 1
             for i in range(resnet_stacks):
                 _layer.append(conv_unit(dim_in, dim_in))
-            if dim_in in attention:
+            if dim_in in attention or ind in attention:
+                print(f'\t\tEncoder: Using attention with dim in {dim_in}, {attn_heads} heads of {attn_dim} dim')
                 _layer.append(Residual(PreNorm(dim_in, LinearAttention(dim_in, attn_heads, attn_dim))))
             if is_last:
                 _down = WeightStandardizedConv2d(in_channels=dim_in, out_channels=dim_out, 

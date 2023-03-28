@@ -33,6 +33,9 @@ class Decoder2(nn.Module):
            
         dims = [init_planes, *map(lambda m: init_planes * m, plains_divs[::-1])] 
         in_out = list(zip(dims[:-1], dims[1:]))[::-1]
+        #print(f'\t\tDecoder: init_planes {init_planes}')
+        #print(f'\t\tDecoder: plains_mults {plains_divs}')
+        #print(f'\t\tDecoder: {in_out}')
        
         conv_unit = partial(ResnetBlock, groups=resnet_grnorm_groups)
                     
@@ -59,7 +62,8 @@ class Decoder2(nn.Module):
             is_last = ind == len(in_out) - 1
             for i in range(resnet_stacks):
                 _layer.append(conv_unit(dim_in, dim_in))
-            if dim_in in attention:
+            if dim_in in attention or ind in attention:
+                print(f'\t\tDecoder: Using attention with dim in {dim_in}, {attn_heads} heads of {attn_dim} dim')
                 _layer.append(Residual(PreNorm(dim_in, LinearAttention(dim_in, attn_heads, attn_dim))))
             if is_last:
                 _up = WeightStandardizedConv2d(in_channels=dim_in, 

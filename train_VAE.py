@@ -41,6 +41,7 @@ def main(config_file):
     torch.backends.cudnn.allow_tf32 = False
     torch.backends.cuda.preferred_linalg_library(backend='default')
     torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = True
+    
 
     # model name
     model_name = config['model']['name']

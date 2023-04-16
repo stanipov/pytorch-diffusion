@@ -7,6 +7,12 @@ from src.models.conv_blocks import ResnetBlock, Upsample, WeightStandardizedConv
 from src.models.attention import LinearAttention
 
 # ================================================================================================
+def scale_tensor_11(tensor):
+    tmin = tensor.min().item()
+    tmax = tensor.max().item() 
+    return (tensor - tmin)/(abs(tmax-tmin)) * 2 -1
+    
+    
 class Decoder2(nn.Module):
     def __init__(self, 
                  in_planes = 4,
@@ -33,9 +39,9 @@ class Decoder2(nn.Module):
            
         dims = [init_planes, *map(lambda m: init_planes * m, plains_divs[::-1])] 
         in_out = list(zip(dims[:-1], dims[1:]))[::-1]
-        #print(f'\t\tDecoder: init_planes {init_planes}')
-        #print(f'\t\tDecoder: plains_mults {plains_divs}')
-        #print(f'\t\tDecoder: {in_out}')
+        print(f'\t\tDecoder: init_planes {init_planes}')
+        print(f'\t\tDecoder: plains_mults {plains_divs}')
+        print(f'\t\tDecoder: {in_out}')
        
         conv_unit = partial(ResnetBlock, groups=resnet_grnorm_groups)
                     
@@ -44,26 +50,14 @@ class Decoder2(nn.Module):
         self.conv_in = WeightStandardizedConv2d(in_channels=in_planes, 
                                                 out_channels=init_planes*max(plains_divs), 
                                                 kernel_size=3, padding=1)
-
-        # mid block (mirroring such of the encoder)
-        _layer = []
-        _in_planes = init_planes*max(plains_divs)
-        if legacy_mid:
-            for i in range(resnet_stacks):
-                _layer.append(conv_unit(_in_planes, _in_planes))
-        else:
-            _layer.append(conv_unit(_in_planes, _in_planes))
-            _layer.append(Residual(PreNorm(_in_planes, LinearAttention(_in_planes, attn_heads, attn_dim) )) )
-            _layer.append(conv_unit(_in_planes, _in_planes))
-        self.mid_block = nn.Sequential(*_layer)
-        
+       
         _layer = [] 
         for ind, (dim_out, dim_in) in enumerate(in_out):            
             is_last = ind == len(in_out) - 1
             for i in range(resnet_stacks):
                 _layer.append(conv_unit(dim_in, dim_in))
-            if dim_in in attention or ind in attention:
-                print(f'\t\tDecoder: Using attention with dim in {dim_in}, {attn_heads} heads of {attn_dim} dim')
+            if dim_out in attention or ind in attention:
+                print(f'\t\tDecoder: Using attention in {ind} with dim_in {dim_in}, {attn_heads} heads of {attn_dim} dim')
                 _layer.append(Residual(PreNorm(dim_in, LinearAttention(dim_in, attn_heads, attn_dim))))
             if is_last:
                 _up = WeightStandardizedConv2d(in_channels=dim_in, 
@@ -73,6 +67,21 @@ class Decoder2(nn.Module):
                 _up = Upsample(dim_in, dim_out, up_mode, scale)
             _layer.append(_up)
         self.upscale = nn.Sequential(*_layer)
+
+        # mid block (mirroring such of the encoder)
+        _in_planes = init_planes*max(plains_divs)
+        _layer = []        
+        #_in_planes = dim_out
+        if legacy_mid:
+            for i in range(resnet_stacks):
+                _layer.append(conv_unit(_in_planes, _in_planes))
+        else:
+            _layer.append(conv_unit(_in_planes, _in_planes))
+            _layer.append(Residual(PreNorm(_in_planes, LinearAttention(_in_planes, attn_heads, attn_dim) )) )
+            _layer.append(conv_unit(_in_planes, _in_planes))
+        self.mid_block = nn.Sequential(*_layer)
+
+
             
         self.post_up = nn.Sequential(
                         nn.GroupNorm(num_groups=resnet_grnorm_groups,
@@ -87,7 +96,7 @@ class Decoder2(nn.Module):
         x = self.conv_in(x)
         x = self.mid_block(x)
         x = self.upscale(x)
-        return self.post_up(x)
+        return scale_tensor_11(self.post_up(x))
 # ================================================================================================
 # legacy code
 

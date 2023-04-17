@@ -34,13 +34,14 @@ class LPIPS_VQ_loss(nn.Module):
     
     def forward(self, inputs, recons, codebook_loss):
         y = self._scale_tensor(recons)
-        recon_loss = self.pix_loss(inputs.contiguous(), y.contiguous())
-        percep_loss = self.lpips(inputs.contiguous(), y.contiguous())
+        recon_loss = self.pix_loss(inputs.contiguous(), y.contiguous())*self.pixelloss_weight
+        percep_loss = self.lpips(inputs.contiguous(), y.contiguous())*self.perceptual_weight
         
         if not codebook_loss:
             codebook_loss = torch.tensor([0.0]).to(recon_loss.device)
+        codebook_loss = codebook_loss*self.codebook_weight
         
-        loss = recon_loss*self.pixelloss_weight + percep_loss*self.perceptual_weight + codebook_loss*self.codebook_weight
+        loss = recon_loss + percep_loss + codebook_loss
         
         msg = {
             'total': f'{loss.item():>.5f}',

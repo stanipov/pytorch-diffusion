@@ -3,6 +3,19 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
 
+
+def dummy_loss(t1, t2):
+    return torch.tensor([0.0]).to(t1.device)
+
+def scale_tensor_11(tensor):
+    #tmin = tensor.min().item()
+    #tmax = tensor.max().item() 
+    tmin = tensor.min(dim = 0, keepdim = True).values
+    tmax = tensor.max(dim = 0, keepdim = True).values
+    return (tensor - tmin)/(abs(tmax-tmin)) * 2 -1
+    
+
+
 class LPIPS_VQ_loss(nn.Module):
     def __init__(self, codebook_weight=1.0, 
                  pixelloss_weight=1.0, perceptual_weight=1.0, 
@@ -24,21 +37,18 @@ class LPIPS_VQ_loss(nn.Module):
         if pixel_loss == 'huber':
             self.pix_loss = nn.HuberLoss()
             
-        self.lpips = LearnedPerceptualImagePatchSimilarity(net_type=disc_net)
-        
-    
-    def _scale_tensor(self, tensor):
-        tmin = tensor.min().item()
-        tmax = tensor.max().item() 
-        return (tensor - tmin)/(abs(tmax-tmin)) * 2 -1
-    
+        if perceptual_weight: #or perceptual_weight>1e-3
+            self.lpips = LearnedPerceptualImagePatchSimilarity(net_type=disc_net)
+        else:
+            self.lpips = dummy_loss
+            self.perceptual_weight = 0
+               
     def forward(self, inputs, recons, codebook_loss):
-        y = self._scale_tensor(recons)
-        recon_loss = self.pix_loss(inputs.contiguous(), y.contiguous())*self.pixelloss_weight
-        percep_loss = self.lpips(inputs.contiguous(), y.contiguous())*self.perceptual_weight
+        recon_loss = self.pix_loss(inputs.contiguous(), recons.contiguous()) * self.pixelloss_weight
+        percep_loss = self.lpips(inputs.contiguous(), recons.contiguous()) * self.perceptual_weight
         
         if not codebook_loss:
-            codebook_loss = torch.tensor([0.0]).to(recon_loss.device)
+            codebook_loss = torch.tensor([0.0]).to(inputs.device)
         codebook_loss = codebook_loss*self.codebook_weight
         
         loss = recon_loss + percep_loss + codebook_loss
@@ -53,7 +63,7 @@ class LPIPS_VQ_loss(nn.Module):
         return loss, msg
         
         
-def set_loss(cfg):
+def init_lpips_loss(cfg):
     codebook_weight = cfg.get('codebook_weight', 1.0)
     pixelloss_weight = cfg.get('pixelloss_weight', 1.0)
     perceptual_weight = cfg.get('perceptual_weight', 1.0)

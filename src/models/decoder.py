@@ -28,7 +28,9 @@ class Decoder2(nn.Module):
                  attn_heads = None,
                  attn_dim = None,
                  eps = 1e-6,
-                 legacy_mid = False
+                 legacy_mid = False,
+                 tanh_out = False,
+                 legacy_out = False
                  ):
         super().__init__()
         
@@ -37,6 +39,8 @@ class Decoder2(nn.Module):
         if not attn_dim:
             attn_dim = 32
            
+        self.tanh = tanh_out
+        
         dims = [init_planes, *map(lambda m: init_planes * m, plains_divs[::-1])] 
         in_out = list(zip(dims[1:], dims[:-1]))[::-1]
         
@@ -86,20 +90,34 @@ class Decoder2(nn.Module):
         self.mid_block = nn.Sequential(*_layer)
 
         # post decoder 
-        self.post_up = nn.Sequential(
-                        nn.GroupNorm(num_groups=resnet_grnorm_groups,
-                                     num_channels=dim_out,
-                                     eps = eps),
-                        nn.SiLU(),
-                        WeightStandardizedConv2d(in_channels=in_out[-1][1], 
-                                               out_channels=out_planes, 
-                                               kernel_size=3, padding=1))
+        # TODO: if new post-out works better, remove the legavy option
+        # and retrin the models if needed
+        if legacy_out:
+            self.post_up = nn.Sequential(
+                            nn.GroupNorm(num_groups=resnet_grnorm_groups,
+                                         num_channels=dim_out,
+                                         eps = eps),
+                            nn.SiLU(),
+                            WeightStandardizedConv2d(in_channels=in_out[-1][1], 
+                                                   out_channels=out_planes, 
+                                                   kernel_size=3, padding=1))
+        else:
+            self.post_up = nn.Sequential(
+                            nn.GroupNorm(num_groups=resnet_grnorm_groups,
+                                         num_channels=dim_out,
+                                         eps = eps),
+                            WeightStandardizedConv2d(in_channels=in_out[-1][1], 
+                                                   out_channels=out_planes, 
+                                                   kernel_size=3, padding=1))
                 
     def forward(self, x):
         x = self.conv_in(x)
         x = self.mid_block(x)
         x = self.upscale(x)
-        return scale_tensor_11(self.post_up(x))
+        x = self.post_up(x)
+        if self.tanh:
+            x = torch.tanh(x)
+        return x
 # ================================================================================================
 # legacy code
 

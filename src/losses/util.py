@@ -1,4 +1,7 @@
-# https://github.com/CompVis/taming-transformers/blob/3ba01b241669f5ade541ce990f7650a3b8f65318/taming/modules/util.py#L10
+"""
+Taken from
+https://github.com/CompVis/latent-diffusion/blob/a506df5756472e2ebaf9078affdde2c4f1502cd4/ldm/modules/losses/vqperceptual.py
+"""
 
 import torch
 import torch.nn as nn

@@ -17,10 +17,16 @@ class DiscLoss(nn.Module):
         logits_fake = self.discriminator(x_recon.contiguous().detach())
         d_loss = self.disc_loss(logits_real, logits_fake)
         
+        #log = {
+        #    f'disc_loss':f'{d_loss.clone().detach().mean():>.10f}',
+        #    f'logits_real':f'{logits_real.clone().detach().mean():>.5f}',
+        #    f'logits_fake':f'{logits_fake.clone().detach().mean():>.5f}',    
+        #}
+        
         log = {
-            f'disc_loss':f'{d_loss.clone().detach().mean():>.5f}',
-            f'logits_real':f'{logits_real.clone().detach().mean():>.5f}',
-            f'logits_fake':f'{logits_fake.clone().detach().mean():>.5f}',
-            
+            f'disc_loss': d_loss.clone().detach().mean(),
+            f'logits_real': logits_real.clone().detach().mean(),
+            f'logits_fake': logits_fake.clone().detach().mean(),    
         }
+        
         return d_loss, log

@@ -1,14 +1,13 @@
 """
 Discriminator for the adversarial training. The discriminator architecture is taken from
 https://github.com/CompVis/taming-transformers/blob/master/taming/modules/discriminator/model.py
-
-DiscLoss class is mine.
-
 """
 import torch
 import functools
 import torch.nn as nn
 from .util import ActNorm
+
+from src.utils.aux import get_num_params
 
 
 def weights_init(m):
@@ -75,7 +74,7 @@ class NLayerDiscriminator(nn.Module):
         
         
 def init_discriminator(config, device):
-    print('\nSetting discriminator')
+    print('\n------------------------\nSetting discriminator')
     disc_in_channels = config.get('disc_in_channels', 3)
     disc_num_layers = config.get('disc_num_layers', 3)
     disc_ndf = config.get('disc_ndf', 64)
@@ -85,9 +84,10 @@ def init_discriminator(config, device):
     model =  NLayerDiscriminator(input_nc=disc_in_channels, ndf=disc_ndf, 
                                n_layers=disc_num_layers,
                                use_actnorm=use_actnorm).apply(weights_init)
+    print(f'Disc parameters: {get_num_params(model):,}')
     if load:
         print(f'Loading pretrained weights from:\n\t{load}')
         status = model.load_state_dict(torch.load(load), strict = False)
         print(f'\t{status}')
-    print('Done\n')
+    print('Done\n------------------------')
     return model.to(device)    

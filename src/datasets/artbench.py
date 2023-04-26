@@ -81,7 +81,7 @@ def set_dataloader_disc(config):
         use_subset         = config['dataset']['use_subset']
         batch_size         = int(config['training']['batch_size'])
         if config['discriminator']['disc_train_batch']:
-            batch_size = config['discriminator']['disc_train_batch'] 
+            batch_size = int(config['discriminator']['disc_train_batch']) 
             
         dataloader_workers = int(config['training']['dataloader_workers'])
         if use_subset:

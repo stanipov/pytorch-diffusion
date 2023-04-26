@@ -113,7 +113,7 @@ class VQModel(nn.Module):
         return self.decode(z)
         
     def get_last_layer(self):
-        return seld._decoder.post_up[1].weight
+        return self._decoder.post_up[1].weight
 
 # ------------------------------------------------------------------------------------------------------------   
 def weights_init(m):

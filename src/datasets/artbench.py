@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+from typing import Union, Tuple
 
 from PIL import Image
 import numpy as np
@@ -15,6 +16,25 @@ def artbench256(root):
     transform = transforms.Compose([transforms.ToTensor(),
                                     transforms.Lambda(lambda t: (t * 2) - 1)])
     return ImageFolder(root = root, loader=Image.open, transform = transform)
+
+def im_dataset(root,
+               resize: bool = False,
+               image_size: Union[int, Tuple[int,int], None] = None ):
+    """
+    ImageFolder wrapper to resize/leave as-is the images
+    """
+    if resize and image_size:
+        transform = transforms.Compose([transforms.Resize(image_size,
+                                                          interpolation=transforms.InterpolationMode.BICUBIC,
+                                                          antialias=True),
+                                        transforms.CenterCrop(image_size),
+                                        transforms.ToTensor(),
+                                        transforms.Lambda(lambda t: (t * 2) - 1)])
+    else:
+        transform = transforms.Compose([transforms.ToTensor(),
+                                        transforms.Lambda(lambda t: (t * 2) - 1)])
+    return ImageFolder(root = root, loader=Image.open, transform = transform)
+
     
     
 def artbench_hires(root, image_size = False):
@@ -50,10 +70,12 @@ def set_dataloader_vq(config):
     print('Setting the dataset')
     if img_resize and image_size > 256:
         print(f'Using the original dataset with rescaling to {image_size} pix')
-        dataset = artbench_hires(root, image_size=image_size)
+        dataset = im_dataset(root, resize=img_resize, image_size=image_size)
+        #dataset = artbench_hires(root, image_size=image_size)
     else:
         print('Using CIFAR10-like dataset of 256 pix')
-        dataset = artbench256(root)
+        dataset = im_dataset(root, resize=img_resize, image_size=image_size)
+        #dataset = artbench256(root)
     num_classes = len(dataset.classes)
 
     if use_subset:
@@ -91,10 +113,12 @@ def set_dataloader_disc(config):
     print('Setting the dataset')
     if img_resize and image_size > 256:
         print(f'Using the original dataset with rescaling to {image_size} pix')
-        dataset = artbench_hires(root, image_size=image_size)
+        dataset = im_dataset(root, resize = img_resize, image_size = image_size)
+        #dataset = artbench_hires(root, image_size=image_size)
     else:
         print('Using CIFAR10-like dataset of 256 pix')
-        dataset = artbench256(root)
+        dataset = im_dataset(root, resize=img_resize, image_size=image_size)
+        #dataset = artbench256(root)
     num_classes = len(dataset.classes)
 
     if use_subset:

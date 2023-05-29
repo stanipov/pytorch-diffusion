@@ -94,8 +94,7 @@ class LPIPSWithDiscriminator(nn.Module):
             logits_fake = self.discriminator(reconstructions.contiguous())
             g_loss = -torch.mean(logits_fake)
             #g_loss = torch.mean(logits_fake)
-            
-            
+
             try:
                 d_weight = self.calculate_adaptive_weight(nll_loss, g_loss, last_layer=last_layer)
             except RuntimeError:

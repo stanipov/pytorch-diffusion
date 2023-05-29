@@ -1,6 +1,16 @@
 import torch, time
 import torch.nn.functional as F
 from tqdm import tqdm
+from typing import Dict, Tuple
+
+# ------------------------------------------ Newer version --------------------------------------
+# Taken from https://github.com/cloneofsimo/minDiffusion/blob/master/mindiffusion/ddpm.py
+
+
+
+
+
+
 
 #  -------------------------------------------------------
 def extract(a, t, x_shape):
@@ -149,7 +159,6 @@ class Diffusion:
             return imgs
         else:
             return img
-            
 
     def sample(self, image_size, batch_size=16, channels=3, x_self_cond = None, classes = None, fp16 = torch.float16):
         return self._p_sample_loop(shape=(batch_size, channels, image_size, image_size), 

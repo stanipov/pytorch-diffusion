@@ -99,17 +99,20 @@ class VQModel(nn.Module):
         self.post_quantizer = WeightStandardizedConv2d(vq_embed_dim, latent_dim, kernel_size=1)
         
         
-    def encode(self, x):
+    def encode(self, x, tanh = False):
         x = self._encoder(x)
-        return self.pre_quantizer(x)
-    
+        x = self.pre_quantizer(x)
+        if tanh:
+            x = torch.tanh(x)
+        return x
+            
     def decode(self, z):
         loss, z_q, perplexity, encodings, encoding_indices = self._vq(z)
         z_q = self.post_quantizer(z_q)
         return self._decoder(z_q), loss, perplexity, encodings, encoding_indices
     
-    def forward(self, x):
-        z = self.encode(x)
+    def forward(self, x, tanh = False):
+        z = self.encode(x, tanh)
         return self.decode(z)
         
     def get_last_layer(self):

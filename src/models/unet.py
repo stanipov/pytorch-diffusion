@@ -18,9 +18,11 @@ class Unet(nn.Module):
         out_channels = 3,
         down_mode = 'avg',
         down_kern = 2,
-        up_mode = 'bilinear',
+        up_mode = 'nearest',
         up_scale = 2,
         resnet_stacks = 2,
+        attn_heaads = 4,
+        attn_head_res = 32,
         self_condition = False,
         resnet_grnorm_groups = 4,
         num_classes = None
@@ -81,8 +83,8 @@ class Unet(nn.Module):
                 +
                 nn.ModuleList(
                     [
-                        Residual(PreNorm(dim_in, LinearAttention(dim_in))),
-                        Downsample(dim_in, dim_out)
+                        Residual(PreNorm(dim_in, LinearAttention(dim = dim_in, heads=attn_heaads, dim_head=attn_head_res))),
+                        Downsample(dim_in, dim_out, down_mode, down_kern)
                         if not is_last
                         else nn.Conv2d(dim_in, dim_out, 3, padding=1),
                     ]
@@ -91,8 +93,8 @@ class Unet(nn.Module):
 
         mid_dim = dims[-1]
         self.mid_block1 = conv_unit(mid_dim, mid_dim, time_emb_dim=time_dim)
-        #self.mid_attn = Residual(PreNorm(mid_dim, Attention(mid_dim))) # replaced on Linear attention
-        self.mid_attn = Residual(PreNorm(mid_dim, LinearAttention(mid_dim)))
+        #self.mid_attn = Residual(PreNorm(mid_dim, Attention(mid_dim))) # replaced with Linear attention
+        self.mid_attn = Residual(PreNorm(mid_dim, LinearAttention(dim = mid_dim, heads=attn_heaads, dim_head=attn_head_res)))
         self.mid_block2 = conv_unit(mid_dim, mid_dim, time_emb_dim=time_dim)
 
         for ind, (dim_in, dim_out) in enumerate(reversed(in_out)):
@@ -103,8 +105,8 @@ class Unet(nn.Module):
                 +
                 nn.ModuleList(
                     [
-                        Residual(PreNorm(dim_out, LinearAttention(dim_out))),
-                        Upsample(dim_out, dim_in)
+                        Residual(PreNorm(dim_out, LinearAttention(dim=dim_out, heads=attn_heaads, dim_head=attn_head_res))),
+                        Upsample(dim_out, dim_in, up_mode, up_scale)
                         if not is_last
                         else nn.Conv2d(dim_out, dim_in, 3, padding=1),
                     ]

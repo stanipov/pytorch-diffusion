@@ -21,7 +21,7 @@ class Unet(nn.Module):
         up_mode = 'nearest',
         up_scale = 2,
         resnet_stacks = 2,
-        attn_heaads = 4,
+        attn_heads = 4,
         attn_head_res = 32,
         self_condition = False,
         resnet_grnorm_groups = 4,
@@ -83,7 +83,7 @@ class Unet(nn.Module):
                 +
                 nn.ModuleList(
                     [
-                        Residual(PreNorm(dim_in, LinearAttention(dim = dim_in, heads=attn_heaads, dim_head=attn_head_res))),
+                        Residual(PreNorm(dim_in, LinearAttention(dim = dim_in, heads=attn_heads, dim_head=attn_head_res))),
                         Downsample(dim_in, dim_out, down_mode, down_kern)
                         if not is_last
                         else nn.Conv2d(dim_in, dim_out, 3, padding=1),
@@ -94,7 +94,7 @@ class Unet(nn.Module):
         mid_dim = dims[-1]
         self.mid_block1 = conv_unit(mid_dim, mid_dim, time_emb_dim=time_dim)
         #self.mid_attn = Residual(PreNorm(mid_dim, Attention(mid_dim))) # replaced with Linear attention
-        self.mid_attn = Residual(PreNorm(mid_dim, LinearAttention(dim = mid_dim, heads=attn_heaads, dim_head=attn_head_res)))
+        self.mid_attn = Residual(PreNorm(mid_dim, LinearAttention(dim = mid_dim, heads=attn_heads, dim_head=attn_head_res)))
         self.mid_block2 = conv_unit(mid_dim, mid_dim, time_emb_dim=time_dim)
 
         for ind, (dim_in, dim_out) in enumerate(reversed(in_out)):
@@ -105,7 +105,7 @@ class Unet(nn.Module):
                 +
                 nn.ModuleList(
                     [
-                        Residual(PreNorm(dim_out, LinearAttention(dim=dim_out, heads=attn_heaads, dim_head=attn_head_res))),
+                        Residual(PreNorm(dim_out, LinearAttention(dim=dim_out, heads=attn_heads, dim_head=attn_head_res))),
                         Upsample(dim_out, dim_in, up_mode, up_scale)
                         if not is_last
                         else nn.Conv2d(dim_out, dim_in, 3, padding=1),
@@ -120,7 +120,6 @@ class Unet(nn.Module):
             self.num_classes = num_classes
             self.lbl_embeds = nn.Embedding(num_classes,time_dim)
 
-            
     def forward(self, x, time, x_self_cond=None, lbls = None):
         if self.self_condition:
             x_self_cond = default(x_self_cond, lambda: torch.zeros_like(x))
@@ -184,6 +183,8 @@ def set_unet(config_dict, weights = None):
     down_kern            = config_dict.pop('down_kern', 2)
     up_mode              = config_dict.pop('up_mode', 'bilinear')
     up_scale             = config_dict.pop('up_scale', 2)
+    attn_heads           = config_dict.pop('attn_heads', 4)
+    attn_head_res        = config_dict.pop('attn_head_res', 4)
     
     model = Unet(
         img_size             = img_size,
@@ -199,7 +200,9 @@ def set_unet(config_dict, weights = None):
         down_mode            = down_mode, 
         down_kern            = down_kern,
         up_mode              = up_mode,
-        up_scale             = up_scale
+        up_scale             = up_scale,
+        attn_heads           = attn_heads,
+        attn_head_res        = attn_head_res
     )
     
     if weights:

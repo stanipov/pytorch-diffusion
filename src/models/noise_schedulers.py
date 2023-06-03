@@ -13,20 +13,14 @@ def cosine_beta_schedule(timesteps, s=0.008):
     return torch.clip(betas, 0.0001, 0.9999)
 #  ------------------------------------------------------- 
 
-def linear_beta_schedule(timesteps):
-    beta_start = 0.0001
-    beta_end = 0.02
+def linear_beta_schedule(timesteps, beta_start: float = 0.0001, beta_end: float = 0.02):
     return torch.linspace(beta_start, beta_end, timesteps)
 #  ------------------------------------------------------- 
 
-def quadratic_beta_schedule(timesteps):
-    beta_start = 0.0001
-    beta_end = 0.02
+def quadratic_beta_schedule(timesteps, beta_start: float = 0.0001, beta_end: float = 0.02):
     return torch.linspace(beta_start**0.5, beta_end**0.5, timesteps) ** 2
 #  ------------------------------------------------------- 
 
-def sigmoid_beta_schedule(timesteps):
-    beta_start = 0.0001
-    beta_end = 0.02
+def sigmoid_beta_schedule(timesteps, beta_start: float = 0.0001, beta_end: float = 0.02):
     betas = torch.linspace(-6, 6, timesteps)
     return torch.sigmoid(betas) * (beta_end - beta_start) + beta_start

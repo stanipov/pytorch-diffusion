@@ -1,4 +1,6 @@
-#!/home/sf/data/linux/pyenv/pt2/bin/python
+#!/home/sf/data/linux/pyenv/pt2n/bin/python
+##!/home/sf/data/linux/pyenv/pt1/bin/python
+##!/home/sf/data/linux/pyenv/pt2/bin/python
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -18,6 +20,13 @@ from src.losses.lpips import init_lpips_loss
 from src.losses.LPIPSWithDisc import LPIPSWithDiscriminator
 from src.utils.aux import unscale_tensor, save_grid_imgs, get_num_params
 
+# HF Accelerate
+from accelerate import Accelerator
+from accelerate.utils import DummyOptim
+from accelerate.utils import DummyScheduler
+from deepspeed.accelerator import get_accelerator
+
+import gc
 # to avoid IO errors with massive reading of the files
 import torch.multiprocessing
 torch.multiprocessing.set_sharing_strategy('file_system')
@@ -31,8 +40,12 @@ def conv2tqdm_msg(msg, fmt = '>.5f'):
             res[key] = f'{msg[key]}'
     return res
 
-# ===================================================================    
+# ====================================================================
 def main(config_file):
+
+    import warnings
+    warnings.filterwarnings("ignore")
+
     with open(config_file, 'r') as f:
         config = json.load(f)
     print('\nThis config will be used\n')
@@ -42,7 +55,8 @@ def main(config_file):
     # Preconfig
     # ----------------------------------------------
     os.environ['TORCH_CUDNN_V8_API_ENABLED'] = '1'
-    
+    os.environ['TORCH_EXTENSIONS_DIR'] = config['results']['root']
+
     seed = 19880122
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
@@ -55,7 +69,7 @@ def main(config_file):
     torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = True
     torch.set_float32_matmul_precision('high')
 
-    #torch._dynamo.config.verbose=True
+    #TORCH_EXTENSIONS_DIR  config['results']['root']
 
     # model name
     model_name = config['model']['name']
@@ -93,60 +107,56 @@ def main(config_file):
     if save_snapshot:
         print(f'Model snapshots will be saved in {chkpts}')
 
-    # mixed precision
-    if  'bfloat' in config['training']['fp16'] or 'bf16' in config['training']['fp16']:
-        fp16 = torch.bfloat16
-    if config['training']['fp16'] == 'fp16':
-        fp16 = torch.float16
-    if not config['training']['fp16']:
-        fp16 = None
+    # ----------------------------------------------
+    # Setting up the model, discriminator, and loss
+    # ----------------------------------------------
+    # Dataloader
+    def_train_loader = set_dataloader_vq(config)
+    if config['discriminator']['disc_train_batch']:
+        disc_loader = set_dataloader_disc(config)
+    else:
+        disc_loader = train_loader
 
     # device
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    accelerator = Accelerator(device)
 
     # init the model
-    model, model_eager = prepare_vqmodel(config, device, flag_compile)
-    # init the disc
-    if config['discriminator']['enabled']:
-        discriminator = init_discriminator(config['discriminator'], device)
-    else:
-        discriminator = None
+    model, _ = prepare_vqmodel(config, device, flag_compile)
+    m_opt = DummyOptim(model.parameters())
+    m_sch = None
 
-    print('Setting optimizer, scheduler, and scaler')
-    # set the model optimizers
-    m_opt = set_optimizer(config['optimizer'], model, flag_compile)
-    if discriminator:
-        d_opt = set_optimizer(config['optimizer_d'], discriminator, flag_compile)
-    else:
-        d_opt = None
+    model, optimizer, train_loader, scheduler = accelerator.prepare(
+        model, m_opt, def_train_loader, m_sch)
+    model.to(device)
 
-    # Schedulers
-    if 'type' not in config['lr_scheduler']:
-        raise ValueError
-    if config['lr_scheduler']['type'].lower() == 'onecyclelr':
-        config['lr_scheduler']['epochs'] = num_epochs
-        config['lr_scheduler']['steps_per_epoch'] = int(np.ceil(len(train_loader) / config['training']['grad_step_acc']))
-    m_sch = set_lr_scheduler(config['lr_scheduler'],m_opt)
-    if discriminator:
-        if config['lr_scheduler_d']['type'].lower() == 'onecyclelr':
-            config['lr_scheduler_d']['epochs'] = num_epochs
-            config['lr_scheduler_d']['steps_per_epoch'] = int(np.ceil(len(train_loader) / config['training']['grad_step_acc']))
-        d_sch = set_lr_scheduler(config['lr_scheduler_d'], d_opt)
-    else:
-        d_sch = None
-
-    # Scaler
-    if fp16:
-        m_scaler = torch.cuda.amp.GradScaler()
-        d_scaler = torch.cuda.amp.GradScaler()
-    else:
-        m_scaler = None
-        d_scaler = None
-    print('Done')
+    # Discriminator
+    discriminator = init_discriminator(config['discriminator'], device)
+    if config['lr_scheduler_d']['type'].lower() == 'onecyclelr':
+        config['lr_scheduler_d']['epochs'] = num_epochs
+        config['lr_scheduler_d']['steps_per_epoch'] = int(
+            np.ceil(len(train_loader) / config['training']['grad_step_acc']))
+    d_opt = set_optimizer(config['optimizer_d'], discriminator, flag_compile)
+    d_sch = set_lr_scheduler(config['lr_scheduler_d'], d_opt)
 
     # ----------------------------------------------
     # Discriminator pretrain
     # ----------------------------------------------
+    # mixed precision
+    fp16 = None
+    if 'bfloat' in config['training']['fp16'] or 'bf16' in config['training']['fp16']:
+        fp16 = torch.bfloat16
+    if config['training']['fp16'] == 'fp16' or config['training']['fp16'] == 'float16':
+        fp16 = torch.float16
+    if not config['training']['fp16']:
+        fp16 = None
+
+    # Scaler
+    if fp16:
+        d_scaler = torch.cuda.amp.GradScaler()
+    else:
+        d_scaler = None
+
     if config['discriminator']['disc_pretrain_epochs']:
         disc_loss = DiscLoss(discriminator, 'hinge')
         d_grad_step_acc = config['discriminator']['disc_grad_acc']
@@ -163,7 +173,7 @@ def main(config_file):
         d_sch = set_lr_scheduler(config['lr_scheduler_d'],m_opt)
         d_scaler = torch.cuda.amp.GradScaler()
         print(f'Saved pretrained discriminator in\n\t{disc_name}')
-        
+
     # ----------------------------------------------
     # Set LPIPS with Disc
     # ----------------------------------------------
@@ -184,7 +194,7 @@ def main(config_file):
     x_original = next(iter(train_loader))
     x_original = x_original[0]
     save_grid_imgs(unscale_tensor(x_original), max(x_original.shape[0] // 4, 2), f'{results_folder}/original-images.jpg')
-    
+
     # ----------------------------------------------
     # Training
     # ----------------------------------------------
@@ -201,6 +211,8 @@ def main(config_file):
     d_loss_log = []
     m_loss_fname = os.path.join(results_folder, 'model_log_loss.csv')
     d_loss_fname = os.path.join(results_folder, 'disc_log_loss.csv')
+
+    x_original = torch.tensor(x_original, dtype = fp16)
     for epoch in range(num_epochs):
         t_start = time.time()
         progress_bar = tqdm(train_loader, desc=f'Train {epoch+1}', total = len(train_loader),
@@ -210,38 +222,36 @@ def main(config_file):
         avg_metrics = {}
         
         d_opt.zero_grad(set_to_none = True)
-        m_opt.zero_grad(set_to_none = True)
-        
-        for bstep, X in enumerate(progress_bar):
-            batch_size = X[0].shape[0]
-            batch = X[0].to(device, non_blocking=False)
 
+        for bstep, X in enumerate(progress_bar):
+            batch = torch.tensor(X[0], dtype=fp16).detach()
             # GAN-like part
-            with torch.cuda.amp.autocast(dtype = fp16):
-                batch_recon, q_loss, perplexity_s, _, _ = model(batch)
-                m_loss, m_msg = LPIPSDiscLoss(q_loss, batch, batch_recon, 0, step, last_layer = model.get_last_layer())
-            m_scaler.scale(m_loss).backward()
+            batch_recon, q_loss, perplexity_s, _, _ = model(batch)
+            with torch.cuda.amp.autocast(dtype=fp16):
+                m_loss, m_msg = LPIPSDiscLoss(q_loss, batch, batch_recon, 0, step, last_layer=model.get_last_layer())
+            accelerator.backward(m_loss)
             
+            #get_accelerator().empty_cache()
+
             m_msg_tqdm = conv2tqdm_msg(m_msg)
             progress_bar.set_postfix(m_msg_tqdm)
-            # add to the avg metrics
-            # and to the log
+
+            # add to the avg metrics and to the log
             t = []
             for key in m_msg:
                 if key not in avg_metrics:
                     avg_metrics[key] = 0
                 avg_metrics[key] += m_msg[key]
                 t.append(m_msg[key])
-            if m_sch:
-                t.append(m_sch.get_last_lr()[0])
             m_loss_log.append(t)
 
-                
             # Update the discriminator
             with torch.cuda.amp.autocast(dtype = fp16):
-                batch_recon, q_loss, perplexity_s, _, _ = model(batch)
                 d_loss, d_msg = LPIPSDiscLoss(q_loss, batch, batch_recon, 1, step, last_layer = model.get_last_layer())
             d_scaler.scale(d_loss).backward()
+            
+            #get_accelerator().empty_cache()
+            
             t = []
             for key in d_msg:
                 t.append(d_msg[key])
@@ -253,16 +263,8 @@ def main(config_file):
                 t.append(config['optimizer_d']['lr'])
             d_loss_log.append(t)
 
-
             # update scaler, optimizer, and backpropagate
             if step != 0 and step % grad_step_acc == 0  or (bstep+1) == len(train_loader):
-                m_scaler.step(m_opt)
-                m_scaler.update()
-                if config['lr_scheduler']['type'].lower() == 'onecyclelr':
-                    if m_sch:
-                        m_sch.step() 
-                m_opt.zero_grad(set_to_none = True)
-
                 d_scaler.step(d_opt)
                 d_scaler.update()
                 if config['lr_scheduler_d']['type'].lower() == 'onecyclelr':
@@ -277,23 +279,16 @@ def main(config_file):
             if step != 0 and (step+1) % sample_every == 0:
                 with torch.no_grad():
                     x_recon, _, _, _, _ = model(x_original.to(device))
-                    enc_x = model.encode(x_original.to(device))
 
                 x_recon = unscale_tensor(x_recon)
                 save_grid_imgs(x_recon, max(x_recon.shape[0] // 4, 2), \
                                 f'{img_folder}/recon_imgs-{step+1}-{epoch+1}.jpg')
-                
-            # save checkpoints
-            if step != 0 and (step+1) % save_every == 0:
-                checkpoint = {
-                    'model_orig': model_eager.state_dict(),
-                    'm_opt': m_opt.state_dict(),
-                    'm_scaler': m_scaler.state_dict(),
-                    'd_opt': d_opt.state_dict(),
-                    'd_scaler': d_scaler.state_dict()
-                }
-                torch.save(checkpoint, f'{chkpts}/chkpt_{step+1}-{epoch+1}.pt')
-                torch.save(model_eager.state_dict(), f'{chkpts}/model_orig_{step+1}-{epoch+1}.pt')
+
+                if save_snapshot:
+                    unwrapped_model = accelerator.unwrap_model(model)
+                    # torch.save(model_eager.state_dict(), f'{chkpts}/model_orig_snapshot.pt')
+                    save_model(unwrapped_model, f'{chkpts}/model_sampling_snapshot.pt')
+
             # Update the global step
             step += 1
             
@@ -302,21 +297,26 @@ def main(config_file):
             np.savetxt(m_loss_fname, t, header =','.join(list(m_msg.keys()) + ['lr']), delimiter="," )
             t = np.array(d_loss_log)
             np.savetxt(d_loss_fname, t, header = ','.join(list(d_msg.keys()) + ['lr']), delimiter="," )
-            
+
+            get_accelerator().empty_cache()
+            gc.collect()
+            torch.cuda.empty_cache()
+
         # save a snapshot
         if save_snapshot:
-            torch.save(model_eager.state_dict(), f'{chkpts}/model_orig_snapshot.pt')
+            unwrapped_model = accelerator.unwrap_model(model)
+            #torch.save(model_eager.state_dict(), f'{chkpts}/model_orig_snapshot.pt')
+            save_model(unwrapped_model, f'{chkpts}/model_orig_snapshot.pt')
         
         # save the discriminator
         save_model(discriminator, disc_name)
 
-        # update scheduler (MultiStepLR)
-        if config['lr_scheduler']['type'].lower() == 'multisteplr':
-            if m_sch:
-                m_sch.step() 
         if config['lr_scheduler_d']['type'].lower() == 'multisteplr':
             if d_sch:
-                d_sch.step() 
+                try:
+                    d_sch.step() 
+                except Exception as e:
+                    print(e)
             
         avg_tot /= (bstep+1)
         #msg = f'\t----> loss: {avg_tot:<2.5f}'
@@ -331,8 +331,8 @@ def main(config_file):
         except Exception as e:
             print(e)
         
-    torch.save(model_eager.state_dict(), f'{chkpts}/final_model_{epoch+1}.pt')
-    print(f'Saved the final modet at\n\t{chkpts}/final_model_{epoch+1}.pt')
+    #torch.save(model_eager.state_dict(), f'{chkpts}/final_model_{epoch+1}.pt')
+    print(f'Saved the final model at\n\t{chkpts}/final_model_{epoch+1}.pt')
     return 0
     
 # ===================================================================    

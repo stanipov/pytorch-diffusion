@@ -136,7 +136,13 @@ def weights_init(m):
 def set_VQModel(config, load = False):
     
     # Model params
-    cfg = config['model']
+    if 'model' in config:
+        cfg = config['model']
+    elif 'vqmodel' in config:
+        cfg = config['vqmodel']
+    else:
+        raise KeyError("Can't find model config!")
+
     img_ch            = cfg.get('img_channels', 3)
     enc_init_ch       = cfg.get('enc_init_channels', 64)
     ch_mult           = cfg.get('ch_mult', (1, 2, 4, 4))

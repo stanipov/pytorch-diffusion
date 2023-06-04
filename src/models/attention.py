@@ -6,6 +6,11 @@ from einops import rearrange, reduce
 #  -------------------------------------------------------
 class Attention(nn.Module):
     def __init__(self, dim, heads=4, dim_head=32):
+        """
+        dim: int -- input size
+        heads: int -- number of heads
+        dim_head: int -- head dimensionality
+        """
         super().__init__()
         self.scale = dim_head**-0.5
         self.heads = heads

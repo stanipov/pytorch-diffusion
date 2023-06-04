@@ -168,7 +168,7 @@ class Unet(nn.Module):
         return self.final_conv(x)
 # ----------------------------------------------------------------------------------------
     
-def set_unet(config_dict, weights = None):
+def set_unet(config_dict):
     img_size             = config_dict['img_size']
     init_dim             = config_dict.pop('init_dim', None)   
     dim_mults            = config_dict.pop('dim_mults', (1, 2, 4, 8))
@@ -184,7 +184,7 @@ def set_unet(config_dict, weights = None):
     up_mode              = config_dict.pop('up_mode', 'bilinear')
     up_scale             = config_dict.pop('up_scale', 2)
     attn_heads           = config_dict.pop('attn_heads', 4)
-    attn_head_res        = config_dict.pop('attn_head_res', 4)
+    attn_head_res        = config_dict.pop('attn_head_res', 16)
     
     model = Unet(
         img_size             = img_size,
@@ -204,7 +204,12 @@ def set_unet(config_dict, weights = None):
         attn_heads           = attn_heads,
         attn_head_res        = attn_head_res
     )
-    
+
+    if 'load_name' in config_dict:
+        weights = config_dict['load_name']
+    else:
+        weights = None
+
     if weights:
         print(f'Loading model weights from\n\t{weights}')
         model.load_state_dict(torch.load(weights))

@@ -165,7 +165,7 @@ def main(config_file):
             x_lbls = batch[1].to(device)
 
             with torch.cuda.amp.autocast(dtype=fp16, cache_enabled=False) and torch.no_grad():
-                enc_x = vqmodel.encode(x, encoder_tanh)
+                enc_x = vqmodel.encode(x, encoder_tanh)*vqmodel.scaling_factor
     
             # calculate the loss
             t = torch.randint(0, timesteps, (x.shape[0],), device=device).long()
@@ -205,7 +205,8 @@ def main(config_file):
                 #torch.cuda.empty_cache()
                 # sample
                 sample_lbls = torch.randint(low = 0, high = num_classes-1, size = (sampling_batch, )).to(device)
-                samples = diffusion.p_sample(enc_x.shape, x_self_cond=unet_self_cond, classes=sample_lbls, last = True, eta = eta)
+                sampling_size = (sampling_batch, enc_x.shape[1],enc_x.shape[2], enc_x.shape[3])
+                samples = diffusion.p_sample(sampling_size, x_self_cond=unet_self_cond, classes=sample_lbls, last = True, eta = eta)
 
                 # decode
                 with torch.cuda.amp.autocast(dtype=fp16, cache_enabled=False) and torch.no_grad():

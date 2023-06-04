@@ -97,6 +97,8 @@ class VQModel(nn.Module):
         
         self.pre_quantizer = WeightStandardizedConv2d(latent_dim, vq_embed_dim, kernel_size=1)
         self.post_quantizer = WeightStandardizedConv2d(vq_embed_dim, latent_dim, kernel_size=1)
+
+        self.scaling_factor = scaling_factor
         
         
     def encode(self, x, tanh = False):

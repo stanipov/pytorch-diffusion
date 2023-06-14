@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from src.losses.util import hinge_d_loss, vanilla_d_loss, loss_fn
 from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
-from src.losses.lpips import init_lpips_loss, dummy_loss
+from src.losses.lpips import init_lpips_loss
 
 def adopt_weight(weight, global_step, threshold=0, value=0.):
     if global_step < threshold:
@@ -46,8 +46,8 @@ class LPIPSWithDiscriminator(nn.Module):
         if perceptual_weight: #or perceptual_weight>1e-3
             self.lpips = LearnedPerceptualImagePatchSimilarity(net_type=disc_net)
         else:
-            self.lpips = dummy_loss
-            self.perceptual_weight = 0
+            self.lpips = None
+            self.perceptual_weight = None
             
         if disc_loss == 'hinge':
             self.disc_loss = hinge_d_loss 
@@ -82,18 +82,23 @@ class LPIPSWithDiscriminator(nn.Module):
         
         # perceptual loss
         rec_loss = self.pix_loss(inputs.contiguous(), reconstructions.contiguous()) * self.pixelloss_weight
-        percep_loss = self.lpips(inputs.contiguous(), reconstructions.contiguous()) * self.perceptual_weight
+        if self.lpips:
+            percep_loss = self.lpips(inputs.contiguous(), reconstructions.contiguous()) * self.perceptual_weight
         
         if not codebook_loss:
             codebook_loss = torch.tensor([0.0]).to(inputs.device)
         codebook_loss = codebook_loss*self.codebook_weight
-        
+
+        # LPIPS inclusion
+        if self.lpips:
+            nll_loss = torch.mean(rec_loss+percep_loss)
+        else:
+            nll_loss = torch.mean(rec_loss)
+
         # Generator loss
-        nll_loss = torch.mean(rec_loss+percep_loss)
         if optimizer_idx == 0:
             logits_fake = self.discriminator(reconstructions.contiguous())
             g_loss = -torch.mean(logits_fake)
-            #g_loss = torch.mean(logits_fake)
 
             try:
                 d_weight = self.calculate_adaptive_weight(nll_loss, g_loss, last_layer=last_layer)
@@ -121,7 +126,7 @@ class LPIPSWithDiscriminator(nn.Module):
                 #'quant': codebook_loss.detach().mean().item(),
                 'nll_loss': nll_loss.detach().mean().item(),
                 'rec': rec_loss.detach().mean().item(),
-                'percep': percep_loss.detach().mean().item(),
+                'percep': percep_loss.detach().mean().item() if self.lpips else 0,
                 'disc': d_weight.detach().item()*disc_factor*g_loss.detach().mean().item(),
                 'd_weight': d_weight.detach().item(),
                 #'d_fac': disc_factor,

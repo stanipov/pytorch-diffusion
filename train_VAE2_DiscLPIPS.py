@@ -49,11 +49,12 @@ def main(config_file):
     
     torch.backends.cudnn.enabled = True
     torch.backends.cudnn.benchmark = True
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.allow_tf32 = False
+    torch.backends.cudnn.deterministic = False
+    torch.backends.cudnn.allow_tf32 = True
     torch.backends.cuda.preferred_linalg_library(backend='default')
     torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = True
-    torch.set_float32_matmul_precision('high')
+    torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = True
+    torch.set_float32_matmul_precision('medium')
 
     #torch._dynamo.config.verbose=True
 
@@ -192,7 +193,7 @@ def main(config_file):
     x_original = next(iter(train_loader))
     x_original = x_original[0]
     save_grid_imgs(unscale_tensor(x_original), max(x_original.shape[0] // 4, 2), f'{results_folder}/original-images.jpg')
-    
+    x_original = x_original.to(device_model)
     # ----------------------------------------------
     # Training
     # ----------------------------------------------
@@ -222,7 +223,7 @@ def main(config_file):
         
         for bstep, X in enumerate(progress_bar):
             batch_size = X[0].shape[0]
-            batch = X[0].to(device_model, non_blocking=False)
+            batch = X[0].to(device_model, non_blocking=True)
 
             # GAN-like part
             with torch.cuda.amp.autocast(dtype = fp16):
@@ -289,18 +290,18 @@ def main(config_file):
                             print(e)
                 d_opt.zero_grad(set_to_none = True)
                 
-            total_loss.append(m_loss.item())    
+            total_loss.append(m_loss.detach().to('cpu').item())
             avg_tot += total_loss[-1]           
 
             # save generated images
             if step != 0 and (step+1) % sample_every == 0:
                 with torch.no_grad():
-                    x_recon, _, _, _, _ = model(x_original.to(device_model))
-                    #enc_x = model.encode(x_original.to(device_model))
-
-                x_recon = unscale_tensor(x_recon)
+                    x_recon, _, _, _, _ = model(x_original, encoder_tanh)
+                x_recon = unscale_tensor(x_recon).detach()
                 save_grid_imgs(x_recon, max(x_recon.shape[0] // 4, 2), \
                                 f'{img_folder}/recon_imgs-{step+1}-{epoch+1}.jpg')
+                torch.save(model_eager.state_dict(), f'{chkpts}/model_orig_snapshot.pt')
+                del x_recon
                 
             # save checkpoints
             if step != 0 and (step+1) % save_every == 0:

@@ -19,12 +19,15 @@ def artbench256(root):
 
 def im_dataset(root,
                resize: bool = False,
-               image_size: Union[int, Tuple[int,int], None] = None ):
+               image_size: Union[int, Tuple[int,int], None] = None, flip_prob = 0.5 ):
     """
     ImageFolder wrapper to resize/leave as-is the images
     """
     if resize and image_size:
-        transform = transforms.Compose([transforms.Resize(image_size,
+        transform = transforms.Compose([transforms.RandomHorizontalFlip(flip_prob),
+                                        transforms.RandomVerticalFlip(flip_prob),
+                                        #transforms.AugMix(interpolation=transforms.InterpolationMode.BILINEAR),
+                                        transforms.Resize(image_size,
                                                           interpolation=transforms.InterpolationMode.BICUBIC,
                                                           antialias=True),
                                         transforms.CenterCrop(image_size),
@@ -32,6 +35,8 @@ def im_dataset(root,
                                         transforms.Lambda(lambda t: (t * 2) - 1)])
     else:
         transform = transforms.Compose([transforms.ToTensor(),
+                                        transforms.RandomHorizontalFlip(flip_prob),
+                                        transforms.RandomVerticalFlip(flip_prob),
                                         transforms.Lambda(lambda t: (t * 2) - 1)])
     return ImageFolder(root = root, loader=Image.open, transform = transform)
 

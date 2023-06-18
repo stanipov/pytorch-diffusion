@@ -1,8 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
-from torch import einsum
+#import numpy as np
+#from torch import einsum
 from einops import rearrange
 #  -------------------------------------------------------
 """
@@ -36,7 +36,9 @@ class VectorQuantizer(nn.Module):
         self.beta = commitment_cost
 
         self._embedding = nn.Embedding(self.n_e, self.e_dim)
-        self._embedding.weight.data.uniform_(-1.0 / self.n_e, 1.0 / self.n_e)
+        #self._embedding.weight.data.uniform_(-1.0 / self.n_e, 1.0 / self.n_e)
+        rng = max(1e-3, 1.0 / self.n_e)
+        self._embedding.weight.data.uniform_(-1*rng, rng)
 
         self.sane_index_shape = sane_index_shape
 

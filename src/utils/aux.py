@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
 import numpy as np
 from torchvision.transforms import ToPILImage
-
+import torch.nn as nn
 
 def weights_init(m):
     classname = m.__class__.__name__

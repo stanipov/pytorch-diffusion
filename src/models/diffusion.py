@@ -94,7 +94,7 @@ def generalized_steps(model_args, seq, model, b, eta):
             )
             c2 = ((1 - at_next) - c1 ** 2).sqrt()
             xt_next = at_next.sqrt() * x0_t + c1 * torch.randn_like(x) + c2 * et
-            xs.append(xt_next.to('cpu'))
+            xs.append(xt_next.detach().to('cpu'))
 
     return xs, x0_preds
 
@@ -111,7 +111,7 @@ def ddpm_steps(x, seq, model, b, **kwargs):
             at = compute_alpha(betas, t.long())
             atm1 = compute_alpha(betas, next_t.long())
             beta_t = 1 - at / atm1
-            x = xs[-1].to('cuda')
+            x = xs[-1].to(x.device)
 
             output = model(x, t.float())
             e = output
@@ -129,7 +129,7 @@ def ddpm_steps(x, seq, model, b, **kwargs):
             mask = mask.view(-1, 1, 1, 1)
             logvar = beta_t.log()
             sample = mean + mask * torch.exp(0.5 * logvar) * noise
-            xs.append(sample.to('cpu'))
+            xs.append(sample.detach().to('cpu'))
     return xs, x0_preds
 
 # ------------------------------------------ Newer version ------------------------------------------

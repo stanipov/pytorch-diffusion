@@ -89,9 +89,7 @@ class Decoder2(nn.Module):
             _layer.append(conv_unit(_in_planes, _in_planes))
         self.mid_block = nn.Sequential(*_layer)
 
-        # post decoder 
-        # TODO: if new post-out works better, remove the legavy option
-        # and retrin the models if needed
+        # post decoder
         if legacy_out:
             self.post_up = nn.Sequential(
                             nn.GroupNorm(num_groups=resnet_grnorm_groups,

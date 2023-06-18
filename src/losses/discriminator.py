@@ -53,6 +53,7 @@ class NLayerDiscriminator(nn.Module):
                 nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=2, padding=padw, bias=use_bias),
                 norm_layer(ndf * nf_mult),
                 nn.LeakyReLU(0.2, True)
+                #nn.SiLU()
             ]
 
         nf_mult_prev = nf_mult
@@ -61,6 +62,7 @@ class NLayerDiscriminator(nn.Module):
             nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=1, padding=padw, bias=use_bias),
             norm_layer(ndf * nf_mult),
             nn.LeakyReLU(0.2, True)
+            #nn.SiLU()
         ]
 
         sequence += [

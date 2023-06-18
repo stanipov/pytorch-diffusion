@@ -2,11 +2,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from src.models.decoder import Decoder2, Decoder
-from src.models.encoder import Encoder2, Encoder
+from src.models.decoder import Decoder2
+from src.models.encoder import Encoder2
 from src.models.conv_blocks import WeightStandardizedConv2d
 from src.models.vq import VectorQuantizer
-from typing import Tuple, Optional
+#from src.train.util import partial_load_model
 
 import json
 # ------------------------------------------------------------------------------------------------------------   
@@ -134,7 +134,9 @@ def weights_init(m):
         nn.init.normal_(m.weight.data, 1.0, 0.02)
         nn.init.constant_(m.bias.data, 0)
         
-        
+
+"""
+
 def set_VQModel(config, load = False):
     
     # Model params
@@ -193,7 +195,15 @@ def set_VQModel(config, load = False):
 
     if load:
         print(f'\tLoading the pretrained weights from\n\t{load}')
-        status = _model.load_state_dict(torch.load(load), strict = False)
-        print(f'\t{status}')
+        try:
+            status = _model.load_state_dict(torch.load(load), strict=True)
+            print(f'\t{status}')
+        except Exception as E:
+            print(E)
+            _model = partial_load_model(_model, load)
     
     return _model
+
+
+"""
+

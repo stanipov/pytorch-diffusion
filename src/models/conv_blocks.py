@@ -14,7 +14,6 @@ class WeightStandardizedConv2d(nn.Conv2d):
     
     SF: do not use einops
     """
-
     def forward(self, x):
         eps = 1e-5 if x.dtype == torch.float32 else 1e-3
 

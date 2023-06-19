@@ -97,6 +97,8 @@ class LPIPSWithDiscriminator(nn.Module):
 
         # Generator loss
         if optimizer_idx == 0:
+            d_weight = torch.tensor(0.0)
+            g_loss = torch.tensor(0.0)
 
             if global_step > self.discriminator_iter_start:
                 logits_fake = self.discriminator(reconstructions.contiguous())
@@ -106,12 +108,8 @@ class LPIPSWithDiscriminator(nn.Module):
                 except RuntimeError:
                     assert not self.training
                     d_weight = torch.tensor(0.0)
-            else:
-                d_weight = torch.tensor(0.0)
-                g_loss = torch.tensor(0.0)
-                disc_factor = 0
-
-            loss = nll_loss + d_weight  * g_loss + self.codebook_weight * codebook_loss.mean()
+            disc_loss = self.disc_factor*d_weight*g_loss
+            loss = nll_loss + disc_loss + self.codebook_weight*codebook_loss.mean()
 
             msg = {
                 'Step' : global_step,
@@ -120,7 +118,7 @@ class LPIPSWithDiscriminator(nn.Module):
                 'nll': nll_loss.detach().mean().item(),
                 'rec': rec_loss.detach().mean().item(),
                 'p': percep_loss.detach().mean().item() if self.lpips else 0,
-                'disc': d_weight.detach().item()*disc_factor*g_loss.detach().mean().item(),
+                'disc': disc_loss.detach().mean().item(),
                 'd_weight': d_weight.detach().item(),
                 #'d_fac': disc_factor,
                 'log_fake': g_loss.detach().mean().item(),

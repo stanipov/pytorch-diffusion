@@ -3,8 +3,9 @@ import torch
 from typing import Union, Tuple
 
 from PIL import Image
-import numpy as np
+
 from torchvision import transforms
+from torchvision.io import read_image, ImageReadMode
 from torchvision.datasets import ImageFolder
 from torch.utils.data import random_split
 # ==================================================================================================
@@ -17,12 +18,18 @@ def artbench256(root):
                                     transforms.Lambda(lambda t: (t * 2) - 1)])
     return ImageFolder(root = root, loader=Image.open, transform = transform)
 
+def rgb_img_opener(img):
+    """ Robust readed in case if the input contains alpha channels """
+    return Image.open(img).convert('RGB')
+
 def im_dataset(root,
                resize: bool = False,
                image_size: Union[int, Tuple[int,int], None] = None, flip_prob = 0.5 ):
     """
     ImageFolder wrapper to resize/leave as-is the images
     """
+    from PIL import ImageFile
+    ImageFile.LOAD_TRUNCATED_IMAGES = True
     if resize and image_size:
         transform = transforms.Compose([transforms.RandomHorizontalFlip(flip_prob),
                                         transforms.RandomVerticalFlip(flip_prob),
@@ -38,7 +45,7 @@ def im_dataset(root,
                                         transforms.RandomHorizontalFlip(flip_prob),
                                         transforms.RandomVerticalFlip(flip_prob),
                                         transforms.Lambda(lambda t: (t * 2) - 1)])
-    return ImageFolder(root = root, loader=Image.open, transform = transform)
+    return ImageFolder(root=root, loader=rgb_img_opener, transform=transform)   #loader=Image.open
 
     
     
@@ -96,7 +103,6 @@ def set_dataloader_unet(config):
                                                pin_memory=True)
     print('Done')
     return train_loader, num_classes
-
 
 
 def set_dataloader_vq(config):

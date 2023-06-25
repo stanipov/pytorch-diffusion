@@ -85,7 +85,7 @@ class LPIPSWithDiscriminator(nn.Module):
         if self.lpips:
             percep_loss = self.lpips(inputs.contiguous(), reconstructions.contiguous()) * self.perceptual_weight
         
-        if not codebook_loss:
+        if codebook_loss is not None:
             codebook_loss = torch.tensor([0.0]).to(inputs.device)
         codebook_loss = codebook_loss*self.codebook_weight
 

@@ -120,7 +120,7 @@ def main(config_file):
     print("Device:", torch.cuda.get_device_name(device_model))
 
     # init the model
-    model, model_eager = prepare_vqmodel(config, device_model, flag_compile)
+    model, model_eager = prepare_vaemodel(config, device_model, flag_compile)
     if config['training']['fp16'] == 'fp16':
         model = model.apply(weights_init)
         model_eager = model_eager.apply(weights_init)
@@ -279,8 +279,9 @@ def main(config_file):
 
             # GAN-like part
             with torch.cuda.amp.autocast(dtype=fp16):
-                batch_recon, q_loss, perplexity_s, _, _ = model(batch, encoder_tanh)
-                m_loss, m_msg = LPIPSDiscLoss(q_loss, batch, batch_recon, 0, step,
+                batch_recon, posterior = model(batch, encoder_tanh)
+                kl_loss = posterior.kl()
+                m_loss, m_msg = LPIPSDiscLoss(kl_loss, batch, batch_recon, 0, step,
                                               last_layer=model.get_last_layer() if last_layer else None)
 
             m_scaler.scale(m_loss / grad_step_acc).backward()
@@ -301,8 +302,7 @@ def main(config_file):
 
             # Update the discriminator
             with torch.cuda.amp.autocast(dtype=fp16):
-                batch_recon, q_loss, perplexity_s, _, _ = model(batch, encoder_tanh)
-                d_loss, d_msg = LPIPSDiscLoss(q_loss, batch, batch_recon, 1, step,
+                d_loss, d_msg = LPIPSDiscLoss(kl_loss, batch, batch_recon, 1, step,
                                               last_layer=model.get_last_layer() if last_layer else None)
 
             d_scaler.scale(d_loss / grad_step_acc).backward()
@@ -344,7 +344,7 @@ def main(config_file):
             if sample_every:
                 if step != 0 and (step+1) % sample_every == 0:
                     with torch.no_grad():
-                        x_recon, _, _, _, _ = model(x_original, encoder_tanh)
+                        x_recon, _ = model(x_original, encoder_tanh)
                     x_recon = unscale_tensor(x_recon).detach()
                     save_grid_imgs(x_recon, max(x_recon.shape[0] // 4, 2), \
                                     f'{img_folder}/recon_imgs-{step+1}-{epoch+1}.jpg')

@@ -93,3 +93,6 @@ class VAE(nn.Module):
             z = posterior.mode()
         dec = self.decode(z)
         return dec, posterior
+
+    def get_last_layer(self):
+        return self._decoder.post_up[1].weight

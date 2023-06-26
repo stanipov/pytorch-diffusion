@@ -1,10 +1,13 @@
+"""
+LPIPS loss with discriminator for VQ Model
+Adopted from https://github.com/CompVis/latent-diffusion/blob/a506df5756472e2ebaf9078affdde2c4f1502cd4/ldm/modules/losses/vqperceptual.py
+"""
+
+
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from src.losses.util import hinge_d_loss, vanilla_d_loss, loss_fn
+from src.losses.util import hinge_d_loss, vanilla_d_loss
 from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
-from src.losses.lpips import init_lpips_loss
-from numpy import isclose
 
 def adopt_weight(weight, global_step, threshold=0, value=0.):
     if global_step < threshold:
@@ -114,8 +117,8 @@ class LPIPSWithDiscriminator(nn.Module):
             msg = {
                 'Step' : global_step,
                 'total': loss.clone().detach().mean().item(),
-                #'q': codebook_loss.detach().mean().item(),
-                'nll': nll_loss.detach().mean().item(),
+                'q': codebook_loss.detach().mean().item(),
+                #'nll': nll_loss.detach().mean().item(),
                 'rec': rec_loss.detach().mean().item(),
                 'p': percep_loss.detach().mean().item() if self.lpips else 0,
                 'disc': disc_loss.detach().mean().item(),

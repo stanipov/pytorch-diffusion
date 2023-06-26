@@ -301,7 +301,6 @@ def main(config_file):
 
             # Update the discriminator
             with torch.cuda.amp.autocast(dtype=fp16):
-                batch_recon, q_loss, perplexity_s, _, _ = model(batch, encoder_tanh)
                 d_loss, d_msg = LPIPSDiscLoss(q_loss, batch, batch_recon, 1, step,
                                               last_layer=model.get_last_layer() if last_layer else None)
 

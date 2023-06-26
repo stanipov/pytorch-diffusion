@@ -15,7 +15,7 @@ from src.datasets.artbench import set_dataloader_vq, set_dataloader_disc
 from src.losses.disc_loss import DiscLoss
 from src.losses.discriminator import init_discriminator
 from src.losses.lpips import init_lpips_loss
-from src.losses.LPIPSWithDisc import LPIPSWithDiscriminator
+from src.losses.KL_LPIPSWithDisc import KL_LPIPSWithDiscriminator
 from src.utils.aux import unscale_tensor, save_grid_imgs, get_num_params, weights_init
 
 # to avoid IO errors with massive reading of the files
@@ -196,16 +196,8 @@ def main(config_file):
     # ----------------------------------------------
     # Set LPIPS with Disc
     # ----------------------------------------------
-    disc_weight = float(config['discloss'].get('disc_weight', 1.0))
-    disc_factor = float(config['discloss'].get('disc_factor', 1.0))
-    disc_start = int( config['training'].get('disc_start', 0) )
-    disc_loss_fn = config['training'].get('disc_loss_fn', 'hinge')
-    LPIPSDiscLoss = LPIPSWithDiscriminator(discriminator=discriminator, 
-                                           disc_start=disc_start, 
-                                           discriminator_weight = disc_weight,
-                                           disc_factor = disc_factor, 
-                                           disc_loss = disc_loss_fn,
-                                           cfg = config['lpips']).to(device_model)
+    LPIPSDiscLoss = KL_LPIPSWithDiscriminator(discriminator=discriminator,
+                                           cfg = config['loss']).to(device_model)
 
     # ----------------------------------------------
     # Save original images
@@ -277,11 +269,13 @@ def main(config_file):
         for bstep, X in enumerate(progress_bar):
             batch = X[0].to(device_model, non_blocking=True)
 
+            # Forward pass
+            with torch.cuda.amp.autocast(dtype=fp16):
+                batch_recon, posterior = model(batch)
+
             # GAN-like part
             with torch.cuda.amp.autocast(dtype=fp16):
-                batch_recon, posterior = model(batch, encoder_tanh)
-                kl_loss = posterior.kl()
-                m_loss, m_msg = LPIPSDiscLoss(kl_loss, batch, batch_recon, 0, step,
+                m_loss, m_msg = LPIPSDiscLoss(batch, batch_recon, posterior, 0, step,
                                               last_layer=model.get_last_layer() if last_layer else None)
 
             m_scaler.scale(m_loss / grad_step_acc).backward()
@@ -302,7 +296,7 @@ def main(config_file):
 
             # Update the discriminator
             with torch.cuda.amp.autocast(dtype=fp16):
-                d_loss, d_msg = LPIPSDiscLoss(kl_loss, batch, batch_recon, 1, step,
+                d_loss, d_msg = LPIPSDiscLoss(batch, batch_recon, posterior, 1, step,
                                               last_layer=model.get_last_layer() if last_layer else None)
 
             d_scaler.scale(d_loss / grad_step_acc).backward()
@@ -344,7 +338,7 @@ def main(config_file):
             if sample_every:
                 if step != 0 and (step+1) % sample_every == 0:
                     with torch.no_grad():
-                        x_recon, _ = model(x_original, encoder_tanh)
+                        x_recon, *_ = model(x_original)
                     x_recon = unscale_tensor(x_recon).detach()
                     save_grid_imgs(x_recon, max(x_recon.shape[0] // 4, 2), \
                                     f'{img_folder}/recon_imgs-{step+1}-{epoch+1}.jpg')
@@ -404,7 +398,7 @@ def main(config_file):
 
         # sample in the end of the training epoch
         with torch.no_grad():
-            x_recon, _, _, _, _ = model(x_original, encoder_tanh)
+            x_recon, *_ = model(x_original)
         x_recon = unscale_tensor(x_recon).detach()
         save_grid_imgs(x_recon, max(x_recon.shape[0] // 4, 2), \
                        f'{img_folder}/recon_imgs-{epoch + 1}.jpg')
@@ -424,7 +418,7 @@ def main(config_file):
     torch.save(checkpoint, f'{chkpts}/final_chkpt_e{epoch+1}_s{step+1}.pt')
 
     with torch.no_grad():
-        x_recon, _, _, _, _ = model(x_original, encoder_tanh)
+        x_recon, *_ = model(x_original)
     x_recon = unscale_tensor(x_recon).detach()
     save_grid_imgs(x_recon, max(x_recon.shape[0] // 4, 2), \
                    f'{img_folder}/FINAL_recon_imgs-{step + 1}-{epoch + 1}.jpg')

@@ -1,6 +1,4 @@
-import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 from src.models.decoder import Decoder2
 from src.models.encoder import Encoder2
@@ -67,6 +65,7 @@ class VAE(nn.Module):
 
         self.pre_quantizer = WeightStandardizedConv2d(latent_dim *2, 2* embed_dim, kernel_size=1)
         self.post_quantizer = WeightStandardizedConv2d(embed_dim, latent_dim, kernel_size=1)
+        self.scaling_factor = scaling_factor
 
     def _encode(self, x):
         h = self._encoder(x)

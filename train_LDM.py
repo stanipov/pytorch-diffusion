@@ -10,7 +10,7 @@ from shutil import copy2
 from src.train.util import *
 from src.datasets.artbench import set_dataloader_unet
 from src.utils.aux import unscale_tensor, save_grid_imgs, get_num_params
-from src.models.unet import Unet, set_unet
+from src.models.unet import set_unet
 from src.models.diffusion import Diffusion
 
 # to avoid IO errors with massive reading of the files
@@ -101,13 +101,23 @@ def main(config_file):
     print('Setting up the UNet')
     unet_self_cond = config['unet_config'].get('self_condition', False)
     unet_out_ch = config['unet_config']['out_channels']
-    unet = set_unet(config['unet_config'])
-    unet = unet.to(device)
+    unet_raw = set_unet(config['unet_config'])
+    if config['training']['compile']:
+        unet = torch.compile(unet_raw).to(device)
+    else:
+        unet = unet_raw.to(device)
     print(f'\tParameters: {get_num_params(unet):,}')
 
-    # Set the VQModel
-    vqmodel, vqmodel_eager = prepare_vqmodel(config, device, flag_compile)
-    encoder_tanh = config['vqmodel'].get('encode_tanh_out', False)
+    # Set the AutoEncoder model
+    if 'vq' in config['autoencoder']['type']:
+        autoencoder, autoencoder_eager = prepare_vqmodel(config, device, flag_compile, 'autoencoder')
+        encoder_tanh = config['autoencoder'].get('encode_tanh_out', False)
+        vq_model = True
+    elif 'vae' in config['autoencoder']['type']:
+        autoencoder, autoencoder_eager = prepare_vaemodel(config, device, flag_compile, config_key = 'autoencoder')
+        vq_model = False
+    #autoencoder_eager = autoencoder_eager.to('cpu')
+
 
     print('Setting optimizer, scheduler, and scaler')
     # set the model optimizers
@@ -142,6 +152,25 @@ def main(config_file):
                      sample_every = ddim_skip,
                      device=device)
 
+    # ---------------------------------------------------
+    # Loading optimizer and scaler from a chkpt if exists
+    # ---------------------------------------------------
+    chkpt_path = config['training'].get('chkpt', None)
+    if chkpt_path:
+        print(f'Loading opt., scaler, sch. from {chkpt_path}')
+        checkpoint = torch.load(chkpt_path)
+        if 'scheduler' in checkpoint:
+            msg = scheduler.load_state_dict(checkpoint['m_opt'])
+            print(msg)
+        if 'scaler' in checkpoint:
+            if scaler:
+                msg = scaler.load_state_dict(checkpoint['m_scaler'])
+                print(msg)
+        if 'optimizer' in checkpoint:
+            msg = optimizer.load_state_dict(checkpoint['d_opt'])
+            print(msg)
+        print('Done')
+
     if save_snapshot:
         print(f'Model snapshots will be saved in {chkpts}')
     print(f'Training for {num_epochs} epochs')
@@ -151,6 +180,7 @@ def main(config_file):
     losses = []
         
     step = 0
+    autoencoder.eval()
     for epoch in range(num_epochs):
         t_start = time.time()
         progress_bar = tqdm(train_loader, desc=f'Train {epoch+1}', total = len(train_loader),
@@ -165,7 +195,10 @@ def main(config_file):
             x_lbls = batch[1].to(device)
 
             with torch.cuda.amp.autocast(dtype=fp16, cache_enabled=False) and torch.no_grad():
-                enc_x = vqmodel.encode(x, encoder_tanh)*vqmodel.scaling_factor
+                if vq_model:
+                    enc_x = autoencoder.encode(x, encoder_tanh)*autoencoder.scaling_factor
+                else:
+                    enc_x = autoencoder.encode(x)*autoencoder.scaling_factor
     
             # calculate the loss
             t = torch.randint(0, timesteps, (x.shape[0],), device=device).long()
@@ -200,41 +233,40 @@ def main(config_file):
             # save generated images and checkpoints
             if step != 0 and (step+1) % sample_every == 0:
                 print(f'\n\tSampling at epoch {epoch+1} and step {step+1}')
-                # empty CUDA cache to win some GPU memory
-                #del x, enc_x
-                #torch.cuda.empty_cache()
                 # sample
                 sample_lbls = torch.randint(low = 0, high = num_classes-1, size = (sampling_batch, )).to(device)
                 sampling_size = (sampling_batch, enc_x.shape[1],enc_x.shape[2], enc_x.shape[3])
-                samples = diffusion.p_sample(sampling_size, x_self_cond=unet_self_cond, classes=sample_lbls, last = True, eta = eta)
+                samples = diffusion.p_sample(sampling_size,
+                                             x_self_cond=unet_self_cond,
+                                             classes=sample_lbls,
+                                             last=True, eta=eta)
 
                 # decode
                 with torch.cuda.amp.autocast(dtype=fp16, cache_enabled=False) and torch.no_grad():
-                    Y, *n = vqmodel.decode(samples.to(device))
+                    Y, *n = autoencoder.decode(samples.to(device)/autoencoder.scaling_factor)
                 # unscale, make the grid, and save
                 all_images = unscale_tensor(Y)
                 save_grid_imgs(all_images, max(1, all_images.shape[0] // grid_rows), f'{img_folder}/sample-s_{step+1}-e_{epoch+1}.jpg')
                 print(f'\nSaved at\n\t{img_folder}/sample-s_{step+1}-e_{epoch+1}.jpg\n')
-                # empty CUDA cache to win some GPU memory
-                #del Y, samples
-                #torch.cuda.empty_cache()
                 
             if step != 0 and (step+1) % save_every == 0:
                 checkpoint = {
-                    'model': unet.state_dict(),
                     'optimizer': optimizer.state_dict(),
                     'scaler': scaler.state_dict() if scaler else None,
                     'scheduler': scheduler.state_dict() if scheduler else None
                 }
-                torch.save(checkpoint, f'{chkpts}/chkpt_{step+1}-{epoch+1}.pt')
+                torch.save(checkpoint, f'{chkpts}/train_chkpt_s{step+1}-e{epoch+1}.pt')
                 
             step += 1
                 
         if scheduler:
-            scheduler.step()  
+            try:
+                scheduler.step()
+            except Exception as E:
+                print(E)
         
         if save_snapshot:
-            torch.save(unet.state_dict(), f'{chkpts}/snapshot_unet.pt')
+            torch.save(unet_raw.state_dict(), f'{chkpts}/snapshot_unet.pt')
             checkpoint = {
                     'optimizer': optimizer.state_dict(),
                     'scaler': scaler.state_dict() if scaler else None,
@@ -248,8 +280,15 @@ def main(config_file):
         print(f'\t----> Epoch {epoch+1} in {time.time() - t_start:.2f}')
         print(msg)    
     
-    torch.save(unet.state_dict(), f'{chkpts}/FINAL_model_{epoch+1}.pt')
-    print(f'Saved the final modet at\n\t{chkpts}/FINAL_model_{epoch+1}.pt')
+    torch.save(unet_raw.state_dict(), f'{chkpts}/FINAL_model_e{epoch+1}.pt')
+    print(f'Saved the final model at\n\t{chkpts}/FINAL_model_e{epoch+1}.pt')
+    checkpoint = {
+        'optimizer': optimizer.state_dict(),
+        'scaler': scaler.state_dict() if scaler else None,
+        'scheduler': scheduler.state_dict() if scheduler else None
+    }
+    torch.save(checkpoint, f'{chkpts}/FINAL_training_e{epoch+1}.pt')
+    print(f'Saved the final states of scheduler, optimizer, scaler at\n\t{chkpts}/FINAL_training_e{epoch+1}.pt')
     return 0
                 
         

@@ -181,7 +181,7 @@ def set_VQModel(config, load=False, config_key=None):
 def set_VAEModel(config, load=False, config_key=None):
     """ Sets the VAE Model from a config  """
     # Model params
-    if config is None:
+    if config_key is None:
         if 'model' in config:
             cfg = config['model']
         elif 'vaemodel' in config:

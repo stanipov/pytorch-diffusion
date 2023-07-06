@@ -107,15 +107,19 @@ class VQModel(nn.Module):
         if tanh:
             x = torch.tanh(x)
         return x
-            
-    def decode(self, z):
+
+    def _decode(self, z):
         loss, z_q, perplexity, encodings, encoding_indices = self._vq(z)
         z_q = self.post_quantizer(z_q)
         return self._decoder(z_q), loss, perplexity, encodings, encoding_indices
+    def decode(self, z):
+        _, z_q, *_ = self._vq(z)
+        z_q = self.post_quantizer(z_q)
+        return self._decoder(z_q)
     
     def forward(self, x, tanh = False):
         z = self.encode(x, tanh)
-        return self.decode(z)
+        return self._decode(z)
         
     def get_last_layer(self):
         return self._decoder.post_up[1].weight

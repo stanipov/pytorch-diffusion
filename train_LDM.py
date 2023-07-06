@@ -184,7 +184,8 @@ def main(config_file):
     for epoch in range(num_epochs):
         t_start = time.time()
         progress_bar = tqdm(train_loader, desc=f'Train {epoch+1}', total = len(train_loader),
-                            mininterval = 1.0, leave=False, disable=False, colour = '#009966')
+                            mininterval = 1.0, leave=False, disable=False, colour = '#009966',
+                            dynamic_ncols=True)
         
         epoch_avg_loss = 0
         optimizer.zero_grad(set_to_none = True)
@@ -235,7 +236,7 @@ def main(config_file):
                 print(f'\n\tSampling at epoch {epoch+1} and step {step+1}')
                 # sample
                 sample_lbls = torch.randint(low = 0, high = num_classes-1, size = (sampling_batch, )).to(device)
-                sampling_size = (sampling_batch, enc_x.shape[1],enc_x.shape[2], enc_x.shape[3])
+                sampling_size = (sampling_batch, enc_x.shape[1], enc_x.shape[2], enc_x.shape[3])
                 samples = diffusion.p_sample(sampling_size,
                                              x_self_cond=unet_self_cond,
                                              classes=sample_lbls,
@@ -243,13 +244,15 @@ def main(config_file):
 
                 # decode
                 with torch.cuda.amp.autocast(dtype=fp16, cache_enabled=False) and torch.no_grad():
-                    Y, *n = autoencoder.decode(samples.to(device)/autoencoder.scaling_factor)
+                    Y = autoencoder.decode(samples.to(device)/autoencoder.scaling_factor)
                 # unscale, make the grid, and save
                 all_images = unscale_tensor(Y)
                 save_grid_imgs(all_images, max(1, all_images.shape[0] // grid_rows), f'{img_folder}/sample-s_{step+1}-e_{epoch+1}.jpg')
                 print(f'\nSaved at\n\t{img_folder}/sample-s_{step+1}-e_{epoch+1}.jpg\n')
+                torch.save(unet_raw.state_dict(), f'{chkpts}/sample_snapshot_unet.pt')
                 
             if step != 0 and (step+1) % save_every == 0:
+                torch.save(unet_raw.state_dict(), f'{chkpts}/snapshot_unet.pt')
                 checkpoint = {
                     'optimizer': optimizer.state_dict(),
                     'scaler': scaler.state_dict() if scaler else None,

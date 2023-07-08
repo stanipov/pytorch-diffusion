@@ -155,25 +155,33 @@ def main(config_file):
     # ---------------------------------------------------
     # Loading optimizer and scaler from a chkpt if exists
     # ---------------------------------------------------
+    start_epoch = 0
     chkpt_path = config['training'].get('chkpt', None)
     if chkpt_path:
         print(f'Loading opt., scaler, sch. from {chkpt_path}')
         checkpoint = torch.load(chkpt_path)
         if 'scheduler' in checkpoint:
-            msg = scheduler.load_state_dict(checkpoint['m_opt'])
+            msg = scheduler.load_state_dict(checkpoint['scheduler'])
             print(msg)
+            _lr = scheduler.get_lr()
+            print(f'\tWill start with lr={_lr}')
         if 'scaler' in checkpoint:
             if scaler:
-                msg = scaler.load_state_dict(checkpoint['m_scaler'])
+                msg = scaler.load_state_dict(checkpoint['scaler'])
                 print(msg)
+                print(f'\tScaler: {scaler.get_scale()}')
         if 'optimizer' in checkpoint:
-            msg = optimizer.load_state_dict(checkpoint['d_opt'])
+            msg = optimizer.load_state_dict(checkpoint['optimizer'])
             print(msg)
+        if 'epoch' in checkpoint:
+            start_epoch = checkpoint['epoch']
+            print(f'\tStarting from epoch: {start_epoch+1}')
         print('Done')
+
 
     if save_snapshot:
         print(f'Model snapshots will be saved in {chkpts}')
-    print(f'Training for {num_epochs} epochs')
+    print(f'Training for {num_epochs-start_epoch} epochs')
     print(f'Sampling every {sample_every} steps')
     print(f'Saving every {save_every} steps')
     print('==============================================================\n\t\tTraining\n==============================================================\n')
@@ -181,7 +189,7 @@ def main(config_file):
         
     step = 0
     autoencoder.eval()
-    for epoch in range(num_epochs):
+    for epoch in range(start_epoch, num_epochs):
         t_start = time.time()
         progress_bar = tqdm(train_loader, desc=f'Train {epoch+1}', total = len(train_loader),
                             mininterval = 1.0, leave=False, disable=False, colour = '#009966',
@@ -254,6 +262,7 @@ def main(config_file):
             if step != 0 and (step+1) % save_every == 0:
                 torch.save(unet_raw.state_dict(), f'{chkpts}/snapshot_unet.pt')
                 checkpoint = {
+                    'epoch': epoch,
                     'optimizer': optimizer.state_dict(),
                     'scaler': scaler.state_dict() if scaler else None,
                     'scheduler': scheduler.state_dict() if scheduler else None
@@ -271,6 +280,7 @@ def main(config_file):
         if save_snapshot:
             torch.save(unet_raw.state_dict(), f'{chkpts}/snapshot_unet.pt')
             checkpoint = {
+                    'epoch': epoch,
                     'optimizer': optimizer.state_dict(),
                     'scaler': scaler.state_dict() if scaler else None,
                     'scheduler': scheduler.state_dict() if scheduler else None
@@ -286,6 +296,7 @@ def main(config_file):
     torch.save(unet_raw.state_dict(), f'{chkpts}/FINAL_model_e{epoch+1}.pt')
     print(f'Saved the final model at\n\t{chkpts}/FINAL_model_e{epoch+1}.pt')
     checkpoint = {
+        'epoch': epoch,
         'optimizer': optimizer.state_dict(),
         'scaler': scaler.state_dict() if scaler else None,
         'scheduler': scheduler.state_dict() if scheduler else None

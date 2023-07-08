@@ -6,6 +6,7 @@ from src.models.helpers import exists, default, PreNorm, SinusoidalPositionEmbed
 from src.models.conv_blocks import ResnetBlock, Downsample, Upsample
 from src.models.attention import Attention, LinearAttention
 
+from src.train.util import partial_load_model
 
 class Unet(nn.Module):
     def __init__(
@@ -212,6 +213,7 @@ def set_unet(config_dict):
 
     if weights:
         print(f'Loading model weights from\n\t{weights}')
-        model.load_state_dict(torch.load(weights))
+        #model.load_state_dict(torch.load(weights))
+        model = partial_load_model(model, weights)
         
     return model

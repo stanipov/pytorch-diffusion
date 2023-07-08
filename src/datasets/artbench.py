@@ -82,10 +82,10 @@ def set_dataloader_unet(config):
     print('Setting the dataset')
     if img_resize and image_size > 256:
         print(f'Using the original dataset with rescaling to {image_size} pix')
-        dataset = im_dataset(root, resize=img_resize, image_size=image_size)
+        dataset = im_dataset(root, resize=img_resize, image_size=image_size, flip_prob=0)
     else:
         print('Using CIFAR10-like dataset of 256 pix')
-        dataset = im_dataset(root, resize=img_resize, image_size=image_size)
+        dataset = im_dataset(root, resize=img_resize, image_size=image_size, flip_prob=0)
     num_classes = len(dataset.classes)
 
     if use_subset:

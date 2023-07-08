@@ -9,7 +9,6 @@ from .util import ActNorm
 
 from src.utils.aux import get_num_params
 
-
 def weights_init(m):
     classname = m.__class__.__name__
     if classname.find('Conv') != -1:

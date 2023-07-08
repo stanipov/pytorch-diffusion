@@ -100,7 +100,7 @@ def main(config_file):
     # Set the UNet
     print('Setting up the UNet')
     unet_self_cond = config['unet_config'].get('self_condition', False)
-    unet_out_ch = config['unet_config']['out_channels']
+#    unet_out_ch = config['unet_config']['out_channels']
     unet_raw = set_unet(config['unet_config'])
     if config['training']['compile']:
         unet = torch.compile(unet_raw).to(device)
@@ -134,7 +134,14 @@ def main(config_file):
     scheduler = set_lr_scheduler(config['lr_scheduler'], optimizer)
 
     if fp16:
-        scaler = torch.cuda.amp.GradScaler()
+        init_scale = config['training'].get('init_scale', 16384)
+        growth_interval = config['training'].get('growth_interval', 10)
+        growth_factor = config['training'].get('growth_factor', 2)
+        backoff_factor = config['training'].get('backoff_factor', 0.5)
+        scaler = torch.cuda.amp.GradScaler(init_scale=init_scale,
+                                             growth_factor=growth_factor,
+                                             growth_interval=growth_interval,
+                                             backoff_factor=backoff_factor)
     else:
         scaler = None
 

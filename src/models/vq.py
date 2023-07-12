@@ -7,6 +7,7 @@ from einops import rearrange
 #  -------------------------------------------------------
 """
 The code below is adopted from https://github.com/zalandoresearch/pytorch-vq-vae/blob/master/vq-vae.ipynb 
+and https://huggingface.co/blog/annotated-diffusion
 and implements an algorithm presented in 'Neural Discrete Representation Learning' by van den Oord et al.
 https://arxiv.org/abs/1711.00937
 

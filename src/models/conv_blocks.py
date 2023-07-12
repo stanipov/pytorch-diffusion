@@ -6,16 +6,18 @@ import torch.nn.functional as F
 #from einops.layers.torch import Rearrange
 
 from src.models.helpers import *
-#  -------------------------------------------------------
+
+#  --------------------------------------------------   Weighted conv   ------------------------------------------------
 class WeightStandardizedConv2d(nn.Conv2d):
     """
     https://arxiv.org/abs/1903.10520
     weight standardization purportedly works synergistically with group normalization
     
     SF: do not use einops
+    Adopted from https://huggingface.co/blog/annotated-diffusion
     """
     def forward(self, x):
-        eps = 1e-5 if x.dtype == torch.float32 else 1e-3
+        eps = 1e-5 if x.dtype == torch.float32 else 1e-4
 
         weight = self.weight
         mean = torch.mean(weight, dim = [1, 2, 3], keepdim = True) 
@@ -31,11 +33,13 @@ class WeightStandardizedConv2d(nn.Conv2d):
             self.dilation,
             self.groups,
         )
-#  -------------------------------------------------------
+
+##  ---------------------------------------------------   ConvBlock   --------------------------------------------------
 class conv_block(nn.Module):
-    def __init__(self, dim, dim_out, groups = 8):
+    """ Adopted from: https://huggingface.co/blog/annotated-diffusion """
+    def __init__(self, dim, dim_out, groups=8):
         super().__init__()
-        self.proj = WeightStandardizedConv2d(dim, dim_out, 3, padding = 1)
+        self.proj = WeightStandardizedConv2d(dim, dim_out, 3, padding=1)
         self.norm = nn.GroupNorm(groups, dim_out)
         self.act = nn.SiLU()
 
@@ -49,13 +53,17 @@ class conv_block(nn.Module):
 
         x = self.act(x)
         return x
-#  -------------------------------------------------------
+
+#  --------------------------------------------------   ResNet block   -------------------------------------------------
 class ResnetBlock(nn.Module):
-    """https://arxiv.org/abs/1512.03385"""
+    """
+    https://arxiv.org/abs/1512.03385
+    Adopted from: https://huggingface.co/blog/annotated-diffusion
+    """
 
     def __init__(self, in_channels, out_channels, 
-                 res_hidden = None, 
-                 time_emb_dim = None, groups=8):
+                 res_hidden=None,
+                 time_emb_dim=None, groups=8):
         super().__init__()
         
         self.mlp = None
@@ -86,8 +94,13 @@ class ResnetBlock(nn.Module):
         h = self.block1(x, scale_shift=scale_shift)
         h = self.block2(h)
         return h + self.res_conv(x)
-#  ------------------------------------------------------- 
+
+#  ---------------------------------------------------   Upsampling   --------------------------------------------------
 def Upsample(dim, dim_out = None, conv = 'bilinear', scale = 2):
+    """
+    Upsampling the input data. For possible compatibility with some of my old code
+    I leave option to use ConvTransposed2D
+    """
     if 'conv' in conv:
         return UpsampleConv(dim, dim_out)
     elif conv in ['nearest', 'linear', 'bilinear', 'bicubic', 'trilinear']:
@@ -127,9 +140,11 @@ def UpsampleConv(dim, dim_out=None):
                            stride=convT_stride, 
                            padding=convT_padding),
         nn.GroupNorm(max(1, dim_out//4), dim_out)
-    )  
-#  -------------------------------------------------------    
+    )
+
+#  --------------------------------------------------   Downsampling   -------------------------------------------------
 def Downsample(dim, dim_out = None, mode = 'avg', kern = 2):
+    """ Downsampling. Leave strided conv2d for legacy """
     if 'conv' in mode:
         return DownsampleConv(dim, dim_out)
     else:
@@ -168,4 +183,3 @@ def DownsampleConv(dim, dim_out=None):
                           kernel_size=conv_kernel,
                           stride=stride, padding=padding),
                 nn.GroupNorm(max(1, dim_out//4), dim_out))
-#  -------------------------------------------------------                     

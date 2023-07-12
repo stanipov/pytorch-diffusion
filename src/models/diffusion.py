@@ -1,8 +1,7 @@
 import torch, time
-import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
-from typing import Dict, Tuple, Union
+from typing import Dict
 from src.models.noise_schedulers import cosine_beta_schedule, linear_beta_schedule, quadratic_beta_schedule, \
     sigmoid_beta_schedule
 from src.losses.util import loss_fn
@@ -80,7 +79,15 @@ def generalized_steps(model_args, seq, model, b, eta):
         seq_next = [-1] + list(seq[:-1])
         x0_preds = []
         xs = [x]
-        for i, j in zip(reversed(seq), reversed(seq_next)):
+
+        progress_bar = tqdm(zip(reversed(seq), reversed(seq_next)),
+                            desc=f'DDIM Sampling', total=len(seq),
+                            mininterval=0.5, leave=False,
+                            disable=False, colour='#F39C12',
+                            dynamic_ncols=True)
+
+        #for i, j in zip(reversed(seq), reversed(seq_next)):
+        for i,j in progress_bar:
             t = (torch.ones(n) * i).to(x.device)
             next_t = (torch.ones(n) * j).to(x.device)
             at = compute_alpha(b, t.long())

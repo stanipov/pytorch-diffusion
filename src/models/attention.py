@@ -1,6 +1,6 @@
 from torch import nn, einsum
 import torch
-from einops import rearrange, reduce
+from einops import rearrange
 
 
 #  -------------------------------------------------------
@@ -10,6 +10,8 @@ class Attention(nn.Module):
         dim: int -- input size
         heads: int -- number of heads
         dim_head: int -- head dimensionality
+
+        Adopted from: https://huggingface.co/blog/annotated-diffusion
         """
         super().__init__()
         self.scale = dim_head**-0.5
@@ -37,6 +39,7 @@ class Attention(nn.Module):
     
 class LinearAttention(nn.Module):
     def __init__(self, dim, heads=4, dim_head=32):
+        """ Adopted from: https://huggingface.co/blog/annotated-diffusion """
         super().__init__()
         self.scale = dim_head**-0.5
         self.heads = heads

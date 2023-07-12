@@ -44,6 +44,12 @@ class Unet(nn.Module):
         down_kern:           - Size of the pooling kernel, has effect only if down_mode is avg or max
         up_mode:             - If 'conv", strided transposed convolution is used, otherwise, interpolation
         up_scale             - Upscale interpolation factor, default 2
+
+        Adopted from: https://huggingface.co/blog/annotated-diffusion with modifications:
+        - module lists init
+        - replaced mid-attention with linear attention
+        - added class conditions
+        - replaced 'manual' down and up with a for-loop
         """
         super().__init__()
 

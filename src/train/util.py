@@ -5,9 +5,8 @@ import torch.nn.functional as F
 from src.models.vq_vae import VQModel
 from src.models.vae import VAE
 from src.utils.aux import get_num_params
-from src.losses.discriminator import NLayerDiscriminator
+from src.losses.discriminator import NLayerDiscriminator, weights_init
 from src.losses.lpips import init_lpips_loss
-#from src.losses.
 
 
 def conv2tqdm_msg(msg, fmt = '>.5f'):
@@ -304,6 +303,26 @@ def prepare_vaemodel(config, device, flag_compile=False, config_key=None):
         model = model_eager.to(device)
     return model, model_eager
 
+# ----------------------------------------------- Set up Discriminator -------------------------------------------------
+def init_discriminator(config, device):
+    print('\n------------------------\nSetting discriminator')
+    disc_in_channels = config.get('disc_in_channels', 3)
+    disc_num_layers = config.get('disc_num_layers', 3)
+    disc_ndf = config.get('disc_ndf', 64)
+    use_actnorm = config.get('use_actnorm', False)
+    load = config.get('load_name', '')
+
+    model = NLayerDiscriminator(input_nc=disc_in_channels, ndf=disc_ndf,
+                                n_layers=disc_num_layers,
+                                use_actnorm=use_actnorm).apply(weights_init)
+    print(f'Disc parameters: {get_num_params(model):,}')
+    if load:
+        print(f'Loading pretrained weights from:\n\t{load}')
+        # status = model.load_state_dict(torch.load(load), strict = False)
+        status = partial_load_model(model, load)
+        print(f'\t{status}')
+    print('Done\n------------------------')
+    return model.to(device)
 
 # -------------------------------------------------- Set up losses -----------------------------------------------------
 def set_lpips_loss(config, device, flag_compile = False):

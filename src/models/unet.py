@@ -82,6 +82,7 @@ class Unet(nn.Module):
         self.ups = nn.ModuleList([])
         num_resolutions = len(in_out)
 
+        # Down
         for ind, (dim_in, dim_out) in enumerate(in_out):
             is_last = ind >= (num_resolutions - 1)
 
@@ -100,10 +101,11 @@ class Unet(nn.Module):
 
         mid_dim = dims[-1]
         self.mid_block1 = conv_unit(mid_dim, mid_dim, time_emb_dim=time_dim)
-        #self.mid_attn = Residual(PreNorm(mid_dim, Attention(mid_dim))) # replaced with Linear attention
-        self.mid_attn = Residual(PreNorm(mid_dim, LinearAttention(dim = mid_dim, heads=attn_heads, dim_head=attn_head_res)))
+        self.mid_attn = Residual(PreNorm(mid_dim, Attention(dim=mid_dim, heads=attn_heads, dim_head=attn_head_res))) # replaced with Linear attention
+        #self.mid_attn = Residual(PreNorm(mid_dim, LinearAttention(dim = mid_dim, heads=attn_heads, dim_head=attn_head_res)))
         self.mid_block2 = conv_unit(mid_dim, mid_dim, time_emb_dim=time_dim)
 
+        # Up
         for ind, (dim_in, dim_out) in enumerate(reversed(in_out)):
             is_last = ind == (len(in_out) - 1)
 

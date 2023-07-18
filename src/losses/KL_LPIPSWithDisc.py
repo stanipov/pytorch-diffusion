@@ -76,7 +76,8 @@ class KL_LPIPSWithDiscriminator(nn.Module):
             self.disc_loss = vanilla_d_loss
 
         # output log variance
-        self.logvar = nn.Parameter(torch.ones(size=()) * logvar_init)
+        self.logvar = nn.Parameter(torch.ones(size=()) * logvar_init, requires_grad=True)
+        self.logvar.requires_grad = True
 
     def calculate_adaptive_weight(self, nll_loss, g_loss, last_layer):
         """
@@ -98,7 +99,6 @@ class KL_LPIPSWithDiscriminator(nn.Module):
                 global_step, last_layer=None, weights=None):
 
         rec_loss = self.pix_loss(inputs.contiguous(), reconstructions.contiguous()) * self.pixelloss_weight
-        #rec_loss = torch.abs(inputs.contiguous() - reconstructions.contiguous())
         # perceptual loss
         if self.lpips:
             p_loss = self.lpips(inputs.contiguous(), reconstructions.contiguous()) * self.perceptual_weight
@@ -108,7 +108,7 @@ class KL_LPIPSWithDiscriminator(nn.Module):
         weighted_nll_loss = nll_loss
         if weights is not None:
             weighted_nll_loss = weights*nll_loss
-        weighted_nll_loss = torch.sum(weighted_nll_loss) / weighted_nll_loss.shape[0]
+        weighted_nll_loss = torch.sum(weighted_nll_loss) / weighted_nll_loss.shape[0] # CompViz
         nll_loss = torch.sum(nll_loss) / nll_loss.shape[0]
         kl_loss = posteriors.kl()
         kl_loss = torch.sum(kl_loss) / kl_loss.shape[0]
@@ -123,7 +123,8 @@ class KL_LPIPSWithDiscriminator(nn.Module):
                 logits_fake = self.discriminator(reconstructions.contiguous())
                 g_loss = -torch.mean(logits_fake)
                 try:
-                    d_weight = self.calculate_adaptive_weight(nll_loss, g_loss, last_layer=last_layer)
+                    #d_weight = self.calculate_adaptive_weight(nll_loss, g_loss, last_layer=last_layer) # CompViz
+                    d_weight = self.calculate_adaptive_weight(weighted_nll_loss, g_loss, last_layer=last_layer) # Me
                 except RuntimeError:
                     assert not self.training
                     d_weight = torch.tensor(0.0)
@@ -134,8 +135,9 @@ class KL_LPIPSWithDiscriminator(nn.Module):
                 'Step': global_step,
                 'total': loss.clone().detach().mean().item(),
                 'kl': kl_loss.detach().mean().item(),
-                'logvar': self.logvar.detach().item(),
+                #'logvar': self.logvar.detach().item(),
                 'nll': nll_loss.detach().mean().item(),
+                'wnll': weighted_nll_loss.detach().mean().item(),
                 'rec': rec_loss.detach().mean().item(),
                 'p': p_loss.detach().mean().item() if self.lpips else 0,
                 'disc': disc_loss.detach().mean().item(),

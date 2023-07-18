@@ -3,6 +3,7 @@ import torch
 from typing import Union, Tuple
 
 from PIL import Image
+from PIL.Image import BICUBIC, LANCZOS
 
 from torchvision import transforms
 from torchvision.io import read_image, ImageReadMode
@@ -19,8 +20,21 @@ def artbench256(root):
     return ImageFolder(root = root, loader=Image.open, transform = transform)
 
 def rgb_img_opener(img):
-    """ Robust readed in case if the input contains alpha channels """
+    """ Robust read in case if the input contains alpha channels """
     return Image.open(img).convert('RGB')
+
+
+class MyLambdaPILRes(transforms.Lambda):
+    def __init__(self, lambd, size, method=LANCZOS):
+        super().__init__(lambd)
+        self.size = (size,size)
+        self.method=method
+
+    def __call__(self, img):
+        return self.lambd(img, self.size, self.method)
+
+def pil_resize(img: Image, size, method):
+    return img.resize(size=size, resample=method)
 
 def im_dataset(root,
                resize: bool = False,
@@ -34,9 +48,10 @@ def im_dataset(root,
         transform = transforms.Compose([transforms.RandomHorizontalFlip(flip_prob),
                                         transforms.RandomVerticalFlip(flip_prob),
                                         #transforms.AugMix(interpolation=transforms.InterpolationMode.BILINEAR),
-                                        transforms.Resize(image_size,
-                                                          interpolation=transforms.InterpolationMode.BICUBIC,
-                                                          antialias=True),
+                                        #transforms.Resize(image_size,
+                                        #                  interpolation=transforms.InterpolationMode.BILINEAR,
+                                        #                  antialias=True),
+                                        MyLambdaPILRes(pil_resize, image_size, LANCZOS),
                                         transforms.CenterCrop(image_size),
                                         transforms.ToTensor(),
                                         transforms.Lambda(lambda t: (t * 2) - 1)])

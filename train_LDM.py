@@ -1,5 +1,7 @@
 #!/home/sf/data/linux/pyenv/pt2/bin/python
 #
+import pickle
+
 import torch
 from tqdm import tqdm
 import time, os, json
@@ -12,6 +14,7 @@ from src.datasets.artbench import set_dataloader_unet
 from src.utils.aux import unscale_tensor, save_grid_imgs, get_num_params
 from src.models.unet import set_unet
 from src.models.diffusion import Diffusion
+from src.models.ema import EMA
 
 # to avoid IO errors with massive reading of the files
 import torch.multiprocessing
@@ -100,13 +103,23 @@ def main(config_file):
     # Set the UNet
     print('Setting up the UNet')
     unet_self_cond = config['unet_config'].get('self_condition', False)
-#    unet_out_ch = config['unet_config']['out_channels']
     unet_raw = set_unet(config['unet_config'])
     if config['training']['compile']:
         unet = torch.compile(unet_raw).to(device)
     else:
         unet = unet_raw.to(device)
     print(f'\tParameters: {get_num_params(unet):,}')
+    # EMA
+    ema_flag = True
+    if ema_flag:
+        ema_unet = EMA(model=unet_raw,
+                       beta=0.9,
+                       update_after_step=10,
+                       update_every=10,
+                       inv_gamma=1.0,
+                       power=0.9)
+    else:
+        ema_unet = None
 
     # Set the AutoEncoder model
     if 'vq' in config['autoencoder']['type']:
@@ -196,6 +209,7 @@ def main(config_file):
         
     step = 0
     autoencoder.eval()
+    train_start = time.time()
     for epoch in range(start_epoch, num_epochs):
         t_start = time.time()
         progress_bar = tqdm(train_loader, desc=f'Train {epoch+1}', total = len(train_loader),
@@ -237,7 +251,10 @@ def main(config_file):
                 else:                   
                     optimizer.step()
                     optimizer.zero_grad(set_to_none = True)
-                
+                # update EMA model
+                if ema_unet:
+                    ema_unet.update()
+
             losses.append(loss.item())
             epoch_avg_loss += losses[-1]
             
@@ -250,13 +267,14 @@ def main(config_file):
             if step != 0 and (step+1) % sample_every == 0:
                 print(f'\n\tSampling at epoch {epoch+1} and step {step+1}')
                 # sample
+                t_sample_start = time.time()
                 sample_lbls = torch.randint(low = 0, high = num_classes-1, size = (sampling_batch, )).to(device)
                 sampling_size = (sampling_batch, enc_x.shape[1], enc_x.shape[2], enc_x.shape[3])
                 samples = diffusion.p_sample(sampling_size,
                                              x_self_cond=unet_self_cond,
                                              classes=sample_lbls,
                                              last=True, eta=eta)
-
+                print(f'\tSampled in {time.time() - t_sample_start} sec.')
                 # decode
                 with torch.cuda.amp.autocast(dtype=fp16, cache_enabled=False) and torch.no_grad():
                     Y = autoencoder.decode(samples.to(device)/autoencoder.scaling_factor)
@@ -265,6 +283,11 @@ def main(config_file):
                 save_grid_imgs(all_images, max(1, all_images.shape[0] // grid_rows), f'{img_folder}/sample-s_{step+1}-e_{epoch+1}.jpg')
                 print(f'\nSaved at\n\t{img_folder}/sample-s_{step+1}-e_{epoch+1}.jpg\n')
                 torch.save(unet_raw.state_dict(), f'{chkpts}/sample_snapshot_unet.pt')
+                if ema_unet:
+                    with open(f'{chkpts}/sample_snapshot_FULL-EMA_unet.pkl', 'wb') as f:
+                        pickle.dump(ema_unet, f)
+                    torch.save(ema_unet.ema_model.state_dict(), f'{chkpts}/sample_snapshot_EMA_unet.pt')
+
                 
             if step != 0 and (step+1) % save_every == 0:
                 torch.save(unet_raw.state_dict(), f'{chkpts}/snapshot_unet.pt')
@@ -286,6 +309,11 @@ def main(config_file):
         
         if save_snapshot:
             torch.save(unet_raw.state_dict(), f'{chkpts}/snapshot_unet.pt')
+            if ema_unet:
+                with open(f'{chkpts}/snapshot_EMA_unet.pkl', 'wb') as f:
+                    pickle.dump(ema_unet, f)
+                torch.save(ema_unet.ema_model.state_dict(), f'{chkpts}/snapshot_EMA_unet.pt')
+
             checkpoint = {
                     'epoch': epoch,
                     'optimizer': optimizer.state_dict(),
@@ -298,10 +326,15 @@ def main(config_file):
         epoch_avg_loss /= (bstep+1)
         msg = f'\t----> Mean loss: {epoch_avg_loss:<3.5f}'
         print(f'\t----> Epoch {epoch+1} in {time.time() - t_start:.2f}')
-        print(msg)    
-    
+        print(msg)
+
+
     torch.save(unet_raw.state_dict(), f'{chkpts}/FINAL_model_e{epoch+1}.pt')
     print(f'Saved the final model at\n\t{chkpts}/FINAL_model_e{epoch+1}.pt')
+    if ema_unet:
+        with open(f'{chkpts}/FINAL_EMA-model_e{epoch+1}.pkl', 'wb') as f:
+            pickle.dump(ema_unet, f)
+        torch.save(ema_unet.ema_model.state_dict(), f'{chkpts}/FINAL-EMA_unet_e{epoch+1}.pt')
     checkpoint = {
         'epoch': epoch,
         'optimizer': optimizer.state_dict(),
@@ -310,6 +343,14 @@ def main(config_file):
     }
     torch.save(checkpoint, f'{chkpts}/FINAL_training_e{epoch+1}.pt')
     print(f'Saved the final states of scheduler, optimizer, scaler at\n\t{chkpts}/FINAL_training_e{epoch+1}.pt')
+    dt = time.time() - train_start
+    if dt>= 3600:
+        dt /= 3600
+        print(f'Finished training in {dt} hrs.')
+    else:
+        dt /= 60
+        print(f'Finished training in {dt} min.')
+    print(f'Tra')
     return 0
                 
         

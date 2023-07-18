@@ -13,7 +13,8 @@ from shutil import copy2
 from src.train.util import *
 from src.datasets.artbench import set_dataloader_vq, set_dataloader_disc
 from src.losses.disc_loss import DiscLoss
-from src.losses.discriminator import init_discriminator
+#from src.losses.discriminator import init_discriminator
+from src.train.util import init_discriminator
 from src.losses.lpips import init_lpips_loss
 from src.losses.KL_LPIPSWithDisc import KL_LPIPSWithDiscriminator
 from src.utils.aux import unscale_tensor, save_grid_imgs, get_num_params, weights_init
@@ -217,6 +218,7 @@ def main(config_file):
     # Loading optimizer and scaler from a chkpt if exists
     # ---------------------------------------------------
     chkpt_path = config['training'].get('chkpt', None)
+    epoch_start = 0
     if chkpt_path:
         print(f'Loading opt., scaler, sch. from {chkpt_path}')
         checkpoint = torch.load(chkpt_path)
@@ -242,20 +244,22 @@ def main(config_file):
             if d_sch:
                 msg = d_sch.load_state_dict(checkpoint['d_sch'])
                 print(msg)
+        epoch_start = checkpoint.get('epoch', 0)
+        step = checkpoint.get('step', 0)
         print('Done')
     # ---------------------------------------------------
     # Training
     # ---------------------------------------------------
-    print(f'Training for {num_epochs} epochs')
+    print(f'Training for {num_epochs-epoch_start} epochs')
     print(f'Sampling every {sample_every} steps')
     print(f'Saving every {save_every} steps')
     print('==============================================================\n\t\tTraining\n==============================================================\n')
-    avg_metrics = {}
     m_loss_log = []
     d_loss_log = []
     m_loss_fname = os.path.join(results_folder, 'model_log_loss.csv')
     d_loss_fname = os.path.join(results_folder, 'disc_log_loss.csv')
-    for epoch in range(num_epochs):
+    nll_w = config['loss'].get('nll_weight', 1)
+    for epoch in range(epoch_start, num_epochs):
         t_start = time.time()
         progress_bar = tqdm(train_loader, desc=f'Train {epoch+1}', total = len(train_loader),
                             mininterval = 1.0, leave=False, disable=False, colour = '#009966')
@@ -269,17 +273,18 @@ def main(config_file):
         for bstep, X in enumerate(progress_bar):
             batch = X[0].to(device_model, non_blocking=True)
 
-            # Forward pass
+            # Forward pass for VAE
             with torch.cuda.amp.autocast(dtype=fp16):
                 batch_recon, posterior = model(batch)
 
             # GAN-like part
             with torch.cuda.amp.autocast(dtype=fp16):
                 m_loss, m_msg = LPIPSDiscLoss(batch, batch_recon, posterior, 0, step,
-                                              last_layer=model.get_last_layer() if last_layer else None)
+                                              last_layer=model.get_last_layer() if last_layer else None,
+                                              weights=nll_w)
 
             m_scaler.scale(m_loss / grad_step_acc).backward()
-            
+
             m_msg_tqdm = conv2tqdm_msg(m_msg)
             progress_bar.set_postfix(m_msg_tqdm)
             # add to the avg metrics
@@ -297,9 +302,11 @@ def main(config_file):
             # Update the discriminator
             with torch.cuda.amp.autocast(dtype=fp16):
                 d_loss, d_msg = LPIPSDiscLoss(batch, batch_recon, posterior, 1, step,
-                                              last_layer=model.get_last_layer() if last_layer else None)
+                                              last_layer=model.get_last_layer() if last_layer else None,
+                                              weights=nll_w)
 
             d_scaler.scale(d_loss / grad_step_acc).backward()
+
             t = []
             for key in d_msg:
                 t.append(d_msg[key])
@@ -312,7 +319,8 @@ def main(config_file):
             d_loss_log.append(t)
 
             # update scaler, optimizer, and backpropagate
-            if step != 0 and step % grad_step_acc == 0  or (bstep+1) == len(train_loader):
+            if step != 0 and step % grad_step_acc == 0 or (bstep+1) == len(train_loader):
+                # model part
                 m_scaler.step(m_opt)
                 m_scaler.update()
                 if m_sch:
@@ -321,7 +329,7 @@ def main(config_file):
                     except Exception as e:
                         print(e)
                 m_opt.zero_grad(set_to_none = True)
-
+                # discriminator part
                 d_scaler.step(d_opt)
                 d_scaler.update()
                 if d_sch:
@@ -342,22 +350,38 @@ def main(config_file):
                     x_recon = unscale_tensor(x_recon).detach()
                     save_grid_imgs(x_recon, max(x_recon.shape[0] // 4, 2), \
                                     f'{img_folder}/recon_imgs-{step+1}-{epoch+1}.jpg')
-                    torch.save(model_eager.state_dict(), f'{chkpts}/model_orig_snapshot.pt')
+                    # model and discriminator snapshots
+                    torch.save(model_eager.state_dict(), f'{chkpts}/sample_model_orig_snapshot.pt')
                     save_model(discriminator, disc_name)
-                    del x_recon
+                    #del x_recon
+
+                    # training snapshot
+                    checkpoint = {
+                        'epoch': epoch,
+                        'step': step,
+                        'm_opt': m_opt.state_dict(),
+                        'm_scaler': m_scaler.state_dict() if m_scaler else None,
+                        'd_opt': d_opt.state_dict(),
+                        'd_scaler': d_scaler.state_dict() if d_opt else None,
+                        'm_sch': m_sch.state_dict() if m_sch else None,
+                        'd_sch': m_sch.state_dict() if d_sch else None,
+                    }
+                    torch.save(checkpoint, f'{chkpts}/sample_chkpt_snapshot.pt')
                 
             # save checkpoints
             if step != 0 and (step+1) % save_every == 0:
-                #checkpoint = {
-                #    'model_orig': model_eager.state_dict(),
-                #    'm_opt': m_opt.state_dict(),
-                #    'm_scaler': m_scaler.state_dict() if m_scaler else None,
-                #    'd_opt': d_opt.state_dict(),
-                #    'd_scaler': d_scaler.state_dict() if d_opt else None
-                #}
-                #torch.save(checkpoint, f'{chkpts}/chkpt_{step+1}-{epoch+1}.pt')
+                checkpoint = {
+                    'epoch': epoch,
+                    'step': step,
+                    'm_opt': m_opt.state_dict(),
+                    'm_scaler': m_scaler.state_dict() if m_scaler else None,
+                    'd_opt': d_opt.state_dict(),
+                    'd_scaler': d_scaler.state_dict() if d_opt else None,
+                    'm_sch': m_sch.state_dict() if m_sch else None,
+                    'd_sch': m_sch.state_dict() if d_sch else None,
+                }
+                torch.save(checkpoint, f'{chkpts}/chkpt_snapshot_s{step+1}-e{epoch+1}.pt')
                 torch.save(model_eager.state_dict(), f'{chkpts}/model_orig_s{step+1}-e{epoch+1}.pt')
-                # save the discriminator
                 save_model(discriminator, disc_name)
 
             # Update the global step
@@ -369,24 +393,27 @@ def main(config_file):
             t = np.array(d_loss_log)
             np.savetxt(d_loss_fname, t, header = ','.join(list(d_msg.keys()) + ['lr']), delimiter="," )
             
-        # save a snapshot
+        # save a snapshot after each epoch
         if save_snapshot:
             torch.save(model_eager.state_dict(), f'{chkpts}/model_orig_snapshot.pt')
             checkpoint = {
+                'epoch': epoch,
+                'step': step,
                 'm_opt': m_opt.state_dict(),
                 'm_scaler': m_scaler.state_dict() if m_scaler else None,
                 'd_opt': d_opt.state_dict(),
-                'd_scaler': d_scaler.state_dict() if d_opt else None
+                'd_scaler': d_scaler.state_dict() if d_opt else None,
+                'm_sch': m_sch.state_dict() if m_sch else None,
+                'd_sch': m_sch.state_dict() if d_sch else None,
              }
             torch.save(checkpoint, f'{chkpts}/chkpt_snapshot.pt')
         
-        # save the discriminator
+        # save the discriminator after each epoch
         save_model(discriminator, disc_name)
 
+        # print averaged data
         avg_tot /= (bstep+1)
-        #msg = f'\t----> loss: {avg_tot:<2.5f}'
         print(f'Epoch {epoch+1} in {time.time() - t_start:.2f}')
-        #print(msg)
         try:
             msg = '\t---->'
             for key in avg_metrics:
@@ -403,11 +430,13 @@ def main(config_file):
         save_grid_imgs(x_recon, max(x_recon.shape[0] // 4, 2), \
                        f'{img_folder}/recon_imgs-{epoch + 1}.jpg')
         torch.save(model_eager.state_dict(), f'{chkpts}/model_orig_snapshot.pt')
-        del x_recon
-        
+
+    # Save models and the training cgeckpoints after the training
     torch.save(model_eager.state_dict(), f'{chkpts}/final_model_{epoch+1}.pt')
     print(f'Saved the final modet at\n\t{chkpts}/final_model_e{epoch+1}_s{step+1}.pt')
     checkpoint = {
+        'epoch': epoch,
+        'step': step,
         'm_opt': m_opt.state_dict(),
         'm_scaler': m_scaler.state_dict() if m_scaler else None,
         'd_opt': d_opt.state_dict(),
@@ -417,6 +446,7 @@ def main(config_file):
     }
     torch.save(checkpoint, f'{chkpts}/final_chkpt_e{epoch+1}_s{step+1}.pt')
 
+    # final reconstruction
     with torch.no_grad():
         x_recon, *_ = model(x_original)
     x_recon = unscale_tensor(x_recon).detach()
@@ -430,10 +460,9 @@ if __name__ == '__main__':
     import argparse
     
     arg_desc = '''\
-        Training of VQ-AE image compressor for latent diffusion
-        on ArtBench dataset (https://github.com/liaopeiyuan/artbench)
+        Training of AE image compressor for latent diffusion
         -------------------------------------------------------
-                Plese, provide name to the config file
+                Please, provide name to the config file
         '''
     
     parser = argparse.ArgumentParser(

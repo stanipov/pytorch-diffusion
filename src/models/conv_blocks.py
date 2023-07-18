@@ -113,10 +113,11 @@ def UpsampleInterp(dim, dim_out = None, interp = 'linear', scale = 2):
     assert scale is not None and scale != 0, f'Scale must be specified!'
     if not dim_out:
             dim_out = dim
-    if interp in ['linear', 'bilinear', 'bicubic' , 'trilinear']:
-        align_corners = True
+    if interp in ['linear', 'bilinear', 'bicubic', 'trilinear']:
+        align_corners = True # check if helps against checkerboard pattern, was: True
     else:
         align_corners = None
+    #align_corners = None # check if helps against checkerboard pattern
     return nn.Sequential(
         nn.Upsample(scale_factor=scale, mode=interp, align_corners=align_corners),
         nn.Conv2d(in_channels=dim,
@@ -144,7 +145,7 @@ def UpsampleConv(dim, dim_out=None):
 
 #  --------------------------------------------------   Downsampling   -------------------------------------------------
 def Downsample(dim, dim_out = None, mode = 'avg', kern = 2):
-    """ Downsampling. Leave strided conv2d for legacy """
+    """ Downsampling. Left strided conv2d for legacy """
     if 'conv' in mode:
         return DownsampleConv(dim, dim_out)
     else:

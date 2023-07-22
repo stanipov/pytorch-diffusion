@@ -27,7 +27,7 @@ def rgb_img_opener(img):
 class MyLambdaPILRes(transforms.Lambda):
     def __init__(self, lambd, size, method=LANCZOS):
         super().__init__(lambd)
-        self.size = (size,size)
+        self.size = (size, size)
         self.method=method
 
     def __call__(self, img):
@@ -51,7 +51,7 @@ def im_dataset(root,
                                         #transforms.Resize(image_size,
                                         #                  interpolation=transforms.InterpolationMode.BILINEAR,
                                         #                  antialias=True),
-                                        MyLambdaPILRes(pil_resize, image_size, LANCZOS),
+                                        MyLambdaPILRes(pil_resize, image_size, BICUBIC),
                                         transforms.CenterCrop(image_size),
                                         transforms.ToTensor(),
                                         transforms.Lambda(lambda t: (t * 2) - 1)])

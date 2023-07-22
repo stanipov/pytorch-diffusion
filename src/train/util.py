@@ -7,6 +7,7 @@ from src.models.vae import VAE
 from src.utils.aux import get_num_params
 from src.losses.discriminator import NLayerDiscriminator, weights_init
 from src.losses.lpips import init_lpips_loss
+from src.models.ema import EMA
 
 
 def conv2tqdm_msg(msg, fmt = '>.5f'):
@@ -104,6 +105,22 @@ def set_lr_scheduler_MultiStepLR(config, optimizer):
                                            gamma=gamma,
                                            last_epoch=-1, verbose=False)
     return scheduler
+
+
+def set_ema_model(unet_model, cfg):
+    beta = cfg.get('beta', 0.9)
+    update_after_step = cfg.get('update_after_step', 10)
+    update_every = cfg.get('update_every', 10)
+    inv_gamma = cfg.get('inv_gamma', 1.0)
+    power = cfg.get('power', 0.9)
+    return EMA(model=unet_model,
+                   beta=0.9,
+                   update_after_step=10,
+                   update_every=10,
+                   inv_gamma=1.0,
+                   power=0.9)
+
+
 
 # -------------------------------------------------- Set up models -----------------------------------------------------
 def set_VQModel(config, load=False, config_key=None):

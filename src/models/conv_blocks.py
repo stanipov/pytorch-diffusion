@@ -109,12 +109,12 @@ def Upsample(dim, dim_out = None, conv = 'bilinear', scale = 2):
         raise ValueError(f"Expected conv ot be 'conv', 'nearest', 'linear', 'bilinear', 'bicubic', 'trilinear', got '{conv}'")
     
     
-def UpsampleInterp(dim, dim_out = None, interp = 'linear', scale = 2):
+def UpsampleInterp(dim, dim_out = None, interp = 'linear', scale = 2, def_align_corners = False):
     assert scale is not None and scale != 0, f'Scale must be specified!'
     if not dim_out:
             dim_out = dim
     if interp in ['linear', 'bilinear', 'bicubic', 'trilinear']:
-        align_corners = True # check if helps against checkerboard pattern, was: True
+        align_corners = def_align_corners # check if helps against checkerboard pattern, was: True
     else:
         align_corners = None
     #align_corners = None # check if helps against checkerboard pattern

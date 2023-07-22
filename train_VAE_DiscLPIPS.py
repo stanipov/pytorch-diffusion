@@ -223,27 +223,23 @@ def main(config_file):
         print(f'Loading opt., scaler, sch. from {chkpt_path}')
         checkpoint = torch.load(chkpt_path)
         if 'm_opt' in checkpoint:
-            msg = m_opt.load_state_dict(checkpoint['m_opt'])
-            print(msg)
+            m_opt.load_state_dict(checkpoint['m_opt'])
         if 'm_scaler' in checkpoint:
             if m_scaler:
-                msg = m_scaler.load_state_dict(checkpoint['m_scaler'])
-                print(msg)
+                m_scaler.load_state_dict(checkpoint['m_scaler'])
+                print(f'\tModel scaler: {m_scaler.get_scale()}')
         if 'd_opt' in checkpoint:
-            msg = d_opt.load_state_dict(checkpoint['d_opt'])
-            print(msg)
+            d_opt.load_state_dict(checkpoint['d_opt'])
         if 'd_scaler' in checkpoint:
             if d_scaler:
-                msg = d_scaler.load_state_dict(checkpoint['d_scaler'])
-                print(msg)
+                d_scaler.load_state_dict(checkpoint['d_scaler'])
+                print(f'\tDiscriminator scaler: {m_scaler.get_scale()}')
         if 'm_sch' in checkpoint:
             if m_sch:
-                msg = m_sch.load_state_dict(checkpoint['m_sch'])
-                print(msg)
+                m_sch.load_state_dict(checkpoint['m_sch'])
         if 'd_sch' in checkpoint:
             if d_sch:
-                msg = d_sch.load_state_dict(checkpoint['d_sch'])
-                print(msg)
+                d_sch.load_state_dict(checkpoint['d_sch'])
         epoch_start = checkpoint.get('epoch', 0)
         step = checkpoint.get('step', 0)
         print('Done')
@@ -259,6 +255,7 @@ def main(config_file):
     m_loss_fname = os.path.join(results_folder, 'model_log_loss.csv')
     d_loss_fname = os.path.join(results_folder, 'disc_log_loss.csv')
     nll_w = config['loss'].get('nll_weight', 1)
+
     for epoch in range(epoch_start, num_epochs):
         t_start = time.time()
         progress_bar = tqdm(train_loader, desc=f'Train {epoch+1}', total = len(train_loader),

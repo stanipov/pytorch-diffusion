@@ -1,0 +1,68 @@
+{
+"unet_config": {
+        "comment": "Just copy from your training config",
+        "name": "pt1-3",
+        "img_size": 64, 
+        "in_channels": 4,
+        "init_dim": 64, 
+        "dim_mults": [1, 2, 2, 4], 
+        "out_channels": 4, 
+        "down_mode": "max", 
+        "down_kern": 2, 
+        "up_mode": "nearest", 
+        "up_scale": 2, 
+        "time_dim": 256, 
+        "self_condition": false,
+        "resnet_grnorm_groups": 32, 
+        "resnet_stacks": 2, 
+        "num_classes": 27,
+        "attn_heads": 4,
+        "attn_head_res":32,
+        "load_name": "/path/to/the/final/model"
+         },        
+"autoencoder": {        
+        "type": "",
+        "name": "",
+        "comment": "", 
+        "load": true, 
+        "load_name": "/path/to/the/final/model",
+        "img_ch": 3, 
+        "enc_init_channels": 8,
+        "latent_dim": 4,
+        "ch_mult": [1, 2, 4, 8], 
+        "group_norm": 4,
+        "resnet_stacks": 2,
+        "embed_dim": null,
+        "down_mode": "avg",
+        "down_kern": 2,
+        "down_attn": [0, 1, 2, 3],
+        "up_mode": "nearest",
+        "up_scale": 2,
+        "up_attn": [0, 1, 2, 3],
+        "attn_heads": 1,
+        "attn_dim": 16,
+        "eps": 1e-7,
+        "scaling_factor": 0.18215,
+        "dec_tanh_out": true
+        },
+"sampling": {
+        "type": "ddim",
+        "sampling_batch": 16,
+        "grid_rows": 4,
+        "eta": 0.75},
+"diffusion":{
+        "timesteps": 500,
+        "skip": 5,
+        "loss": "huber"
+        },
+"noise":{
+    "type": "cosine",
+    "s": 0.008
+        },
+"dataset": {
+        "image_size": 512, 
+        "img_resize": true, 
+        "use_subset": false,
+        "location":"/home/sf/data/datasets/wikiart",     
+        }
+}

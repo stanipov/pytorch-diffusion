@@ -1,0 +1,107 @@
+{
+"dataset": {
+        "image_size": 512, 
+        "img_resize": true, 
+        "use_subset": false,
+        "location":"/path/to/dataset/folder with subfolders for each class",     
+        },
+"results": 
+        {"root": "root/folder/for/the/model"},
+"training": {
+        "chkpt": "if not empty, weights will be loaded from this path",
+        "fp16": "bf16",
+        "compile": true,
+        "num_epochs": 10,
+        "grad_step_acc": 1,
+        "batch_size": 128,
+        "dataloader_workers": 10,
+        "sample_every": 1000,
+        "save_every": 10000,
+        "save_snapshot": true}, 
+"optimizer": {
+        "lr": 4e-6,
+        "betas": [0.5, 0.9],
+        "eps": 1e-7,
+        "weight_decay": 1e-5}, 
+"lr_scheduler": {
+        "enabled": true,
+        "type": "onecyclelr",
+        "max_lr": 2e-2,
+        "pct_start": 0.2,
+        "anneal_strategy": "cos",
+        "cycle_momentum": true,
+        "base_momentum": 0.80,
+        "max_momentum": 0.92,
+        "div_factor": 10,
+        "final_div_factor": 40,
+        "three_phase": false
+        },       
+"ema": {
+        "enabled": true,
+        "beta": 0.85,
+        "update_after_step": 10,
+        "update_every": 10,
+        "inv_gamma": 1.0,
+        "power": 0.9
+        }, 
+"unet_config": {
+        "comment": "Your comments",
+        "name": "Subfolder name to store the training results",
+        "img_size": 64, 
+        "in_channels": 4,
+        "init_dim": 64, 
+        "dim_mults": [1, 2, 2, 4], 
+        "out_channels": 4, 
+        "down_mode": "max", 
+        "down_kern": 2, 
+        "up_mode": "nearest", 
+        "up_scale": 2, 
+        "time_dim": 256, 
+        "self_condition": false,
+        "resnet_grnorm_groups": 32, 
+        "resnet_stacks": 2, 
+        "num_classes": 27,
+        "attn_heads": 4,
+        "attn_head_res":32,
+        "load_name": "if not empty, weights will be loaded from this path"
+         },        
+"autoencoder": {
+        "type": "vae",
+        "name": "",
+        "comment": "", 
+        "load": true, 
+        "load_name": "/path/to/your/vae/model",
+        "img_ch": 3, 
+        "enc_init_channels": 8,
+        "latent_dim": 4,
+        "ch_mult": [1, 2, 4, 8], 
+        "group_norm": 4,
+        "resnet_stacks": 2,
+        "embed_dim": null,
+        "down_mode": "avg",
+        "down_kern": 2,
+        "down_attn": [0, 1, 2, 3],
+        "up_mode": "nearest",
+        "up_scale": 2,
+        "up_attn": [0, 1, 2, 3],
+        "attn_heads": 1,
+        "attn_dim": 16,
+        "eps": 1e-7,
+        "scaling_factor": 0.18215,
+        "dec_tanh_out": true
+        },
+"sampling": {
+        "type": "ddim",
+        "sampling_batch": 16,
+        "grid_rows": 4,
+        "eta": 0.75},
+"diffusion":{
+        "timesteps": 500,
+        "skip": 5,
+        "loss": "l2"
+        },
+"noise":{
+    "type": "cosine",
+    "s": 0.008
+        }
+}

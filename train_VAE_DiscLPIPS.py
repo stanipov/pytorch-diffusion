@@ -1,8 +1,6 @@
+#!/ext4/pyenv/diffusers/bin/python
 #!/home/sf/data/linux/pyenv/pt2/bin/python
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch import optim
 
 from tqdm import tqdm
 import time, os, json
@@ -11,13 +9,12 @@ from pprint import pprint
 from shutil import copy2
 
 from src.train.util import *
-from src.datasets.artbench import set_dataloader_vq, set_dataloader_disc
+from src.datasets.artbench import set_dataloader_vq_imgfld, set_dataloader_disc_imgfld
+from src.datasets.huggan import set_dataloader_vq_hf, set_dataloader_disc_hf
 from src.losses.disc_loss import DiscLoss
-#from src.losses.discriminator import init_discriminator
 from src.train.util import init_discriminator
-from src.losses.lpips import init_lpips_loss
 from src.losses.KL_LPIPSWithDisc import KL_LPIPSWithDiscriminator
-from src.utils.aux import unscale_tensor, save_grid_imgs, get_num_params, weights_init
+from src.utils.aux import unscale_tensor, save_grid_imgs, weights_init
 
 # to avoid IO errors with massive reading of the files
 import torch.multiprocessing
@@ -88,11 +85,18 @@ def main(config_file):
     copy2(config_file, _f_dst)
 
     # Dataloader
-    train_loader = set_dataloader_vq(config)
-    if config['discriminator']['disc_train_batch']:
-        disc_loader = set_dataloader_disc(config)
-    else:
-        disc_loader = train_loader
+    if config['dataset'].get('type', 'legacy')=='legacy':
+        train_loader = set_dataloader_vq_imgfld(config)
+        if config['discriminator']['disc_train_batch']:
+            disc_loader = set_dataloader_disc_imgfld(config)
+        else:
+            disc_loader = train_loader
+    elif config['dataset'].get('type', 'legacy')=='hf':
+        train_loader = set_dataloader_vq_hf(config)
+        if config['discriminator']['disc_train_batch']:
+            disc_loader = set_dataloader_disc_hf(config)
+        else:
+            disc_loader = train_loader
 
     # Train parameters
     num_epochs         = int(config['training']['num_epochs'])
@@ -106,7 +110,6 @@ def main(config_file):
     if save_snapshot:
         print(f'Model snapshots will be saved in {chkpts}')
     last_layer = config['training'].get('last_layer', True)
-    #print(f'\n\n\nLAST LAYER {last_layer}')
 
     # mixed precision
     if  'bfloat' in config['training']['fp16'] or 'bf16' in config['training']['fp16']:

@@ -47,8 +47,6 @@ def show_grid_tensor(x, nrow = 8):
     grid_img = utils.make_grid(x_unsc.to('cpu'), nrow = nrow)
     return T2img(grid_img)
 
-
-
 def get_num_params(m):
     return sum(p.numel() for p in m.parameters())
     

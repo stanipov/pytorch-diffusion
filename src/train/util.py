@@ -67,7 +67,7 @@ def set_lr_scheduler_OneCycleLR(config, optimizer):
     max_lr = config['max_lr']
     total_steps=config.get('total_steps', None)
     epochs=config.get('epochs',None)
-    steps_per_epoch=config.get('steps_per_epoch',None)
+    steps_per_epoch=int(config.get('steps_per_epoch', None))
     pct_start=config.get('pct_start', 0.3)
     anneal_strategy=config.get('anneal_strategy','cos')
     cycle_momentum=config.get('cycle_momentum',True)

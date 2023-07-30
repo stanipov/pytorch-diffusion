@@ -1,12 +1,13 @@
 import numpy as np
 import torch
-from typing import Union, Tuple
 
 import PIL
 from PIL import Image
 from PIL.Image import BICUBIC, LANCZOS
 import torchvision.transforms.functional as F
 import torchvision.transforms.v2.functional as F2
+
+from src.datasets.helpers import MyLambdaPILResAspect, SquarePad, pil_resize
 
 from torchvision import transforms
 from torchvision.transforms import v2
@@ -17,40 +18,6 @@ from torch.utils.data import random_split
 from PIL import Image, ImageFile
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
-
-class MyLambdaPILResAspect(transforms.Lambda):
-    """ Resize keeping aspect ratio """
-    def __init__(self, lambd, size, method=LANCZOS):
-        super().__init__(lambd)
-        self.size = size
-        self.method=method
-
-    def __call__(self, img):
-        return self.lambd(img, self.size, self.method)
-
-
-class SquarePad:
-    def __call__(self, image):
-        w, h = image.size
-        max_wh = np.max([w, h])
-        hp = int((max_wh - w) / 2)
-        vp = int((max_wh - h) / 2)
-        padding = (hp, vp, hp + (max_wh - w) % 2, vp + (max_wh - h) % 2 )
-        return F2.pad(image, padding, 0, 'constant')
-
-
-def pil_resize(img: Image, size, method):
-    """ PIL resize keeping aspect ratio """
-    aspect_ratio = img.height / img.width
-    if img.width > img.height:
-        new_w = size
-        new_h = int(new_w * aspect_ratio)
-    if img.width <= img.height:
-        new_h = size
-        new_w = int(new_h / aspect_ratio)
-    new_size = (new_w, new_h)
-
-    return img.resize(size=new_size, resample=method)
 
 class HUGGAN_Dataset(PtDataset):
     def __init__(self, hf_dataset, new_img_size: int = 256,
@@ -65,7 +32,7 @@ class HUGGAN_Dataset(PtDataset):
             v2.RandomHorizontalFlip(flip_prob),
             v2.RandomVerticalFlip(flip_prob),
             v2.RandomAdjustSharpness(sharpness_factor=3, p=0.75),
-            v2.ColorJitter(brightness=0.0, contrast=0.0, saturation=0.2, hue=0.2),
+            v2.ColorJitter(brightness=0.0, contrast=0.05, saturation=0.1, hue=0.1),
             v2.AugMix(interpolation=transforms.InterpolationMode.BILINEAR, severity=3),
             SquarePad(),
             v2.ToTensor(),
@@ -88,11 +55,46 @@ def hash_lbls(*args):
 
 def collate_fn(batch):
     imgs, artists, genre, style = zip(*batch)
-    lbls = torch.tensor(hash_lbls(*(artists, genre, style)))
     imgs = torch.stack([y[0] for y in imgs ])
+    lbls = (artists, genre, style)
     return imgs, lbls
 
-# ------------------------------------------------ DataLoaders ---------------------------------------------------------
+
+class LUT:
+    """
+    Keeps track of all seen permutations of all classes (N>1).
+    It can sample from seen combinations with replacement.
+    """
+    def __init__(self, classes: list[int]):
+        self.lut = {}
+        self.inv_lut = {}
+        self.max_num = 0
+        self.classes = classes
+
+    def __getitem__(self, item):
+        if item not in self.lut:
+            self.lut[item] = self.max_num
+            self.max_num += 1
+        self.inv_lut[self.max_num] = item
+        return torch.as_tensor(self.lut[item])
+
+    def __len__(self):
+        return len(self.lut)
+
+    def lut(self):
+        return self.lut
+
+    def __repr__(self):
+        total = 1
+        for item in self.classes:
+            total *= item
+        msg = f'Luk-up-table for all encountered combinations for each of {len(self.classes)} number of classes.\nTotal number of combinations is expected to be {total}.\nCurrent: {self.__len__()}'
+        return msg
+
+    def sample(self, size: int):
+        return torch.as_tensor(np.random.choice(list(self.inv_lut.keys()), size=size)).reshape((size,))
+
+    # ------------------------------------------------ DataLoaders ---------------------------------------------------------
 def set_dataloader_unet_hf(config):
     legacy = config['dataset'].get('type', 'legacy')
 
@@ -122,18 +124,18 @@ def set_dataloader_unet_hf(config):
     else:
         print(f'Using whole of {len(dataset)} images')
 
-    num_features = []
+    classes = []
     for key in hf_dataset.features.keys():
         if key != 'image':
             #total_lbls += hf_dataset.features[key].num_classes
-            num_features.append(hf_dataset.features[key].num_classes)
-    print(f'\t{sum(num_features)} classes were found')
+            classes.append(hf_dataset.features[key].num_classes)
+    print(f'\t{sum(classes)} classes were found')
 
     train_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size,
                                                shuffle=True, num_workers=dataloader_workers,
                                                pin_memory=True, collate_fn=collate_fn)
     print('Done')
-    return train_loader, num_features
+    return train_loader, classes
 
 
 def set_dataloader_vq_hf(config):

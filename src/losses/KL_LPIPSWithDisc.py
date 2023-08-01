@@ -104,17 +104,18 @@ class KL_LPIPSWithDiscriminator(nn.Module):
             p_loss = self.lpips(inputs.contiguous(), reconstructions.contiguous()) * self.perceptual_weight
             rec_loss = rec_loss + self.perceptual_weight * p_loss
 
-        nll_loss = rec_loss / torch.exp(self.logvar) + self.logvar
-        weighted_nll_loss = nll_loss
-        if weights is not None:
-            weighted_nll_loss = weights*nll_loss
-        weighted_nll_loss = torch.sum(weighted_nll_loss) / weighted_nll_loss.shape[0] # CompViz
-        nll_loss = torch.sum(nll_loss) / nll_loss.shape[0]
         kl_loss = posteriors.kl()
         kl_loss = torch.sum(kl_loss) / kl_loss.shape[0]
 
         # now the GAN part
         if optimizer_idx == 0:
+
+            nll_loss = rec_loss / torch.exp(self.logvar) + self.logvar
+            weighted_nll_loss = nll_loss
+            if weights is not None:
+                weighted_nll_loss = weights * nll_loss
+            weighted_nll_loss = torch.sum(weighted_nll_loss) / weighted_nll_loss.shape[0]
+            nll_loss = torch.sum(nll_loss) / nll_loss.shape[0]
 
             d_weight = torch.tensor(0.0)
             g_loss = torch.tensor(0.0)
@@ -161,3 +162,19 @@ class KL_LPIPSWithDiscriminator(nn.Module):
                 'logits_real': logits_real.detach().mean().item(),
                 'logits_fake': logits_fake.detach().mean().item()}
             return d_loss, log
+
+
+            # in case of no disc
+            # TODO
+            #loss = weighted_nll_loss +  self.kl_weight * kl_loss
+            #msg = {
+            #    'Step': global_step,
+            #    'total': loss.clone().detach().mean().item(),
+            #    'kl': kl_loss.detach().mean().item(),
+            #    # 'logvar': self.logvar.detach().item(),
+            #    'nll': nll_loss.detach().mean().item(),
+            #    'wnll': weighted_nll_loss.detach().mean().item(),
+            #    'rec': rec_loss.detach().mean().item(),
+            #    'p': p_loss.detach().mean().item() if self.lpips else 0,
+            #}
+            #return loss, msg

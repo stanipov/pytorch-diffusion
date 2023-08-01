@@ -23,8 +23,12 @@ import torch.multiprocessing
 torch.multiprocessing.set_sharing_strategy('file_system')
 
 
-def hash_lbls(*args):
-    return [hash(item) for item in zip(*args)]
+def sample_rnd_lbls(size, classes):
+    """ Returns a tensor of (size, len(classes)) of random integers """
+    rnd = []
+    for num_items in classes:
+        rnd.append(torch.randint(low=0, high=num_items-1, size = (size,)))
+    return torch.stack(rnd)
 
 def main(config_file):
     with open(config_file, 'r') as f:
@@ -85,10 +89,7 @@ def main(config_file):
 
     # Dataloader
     train_loader, classes = set_dataloader_unet(config)
-    num_classes = 1
-    for num in classes:
-        num_classes *= num
-    lbls_lut = LUT()
+    num_classes = len(classes)
 
     # mixed precision
     if 'bfloat' in config['training']['fp16'] or 'bf16' in config['training']['fp16']:
@@ -115,13 +116,15 @@ def main(config_file):
     # Set the UNet
     print('Setting up the UNet')
     unet_self_cond = config['unet_config'].get('self_condition', False)
+    config['unet_config']['num_classes'] = classes
     unet_raw = set_unet(config['unet_config'])
     if config['training']['compile']:
         unet = torch.compile(unet_raw).to(device)
     else:
         unet = unet_raw.to(device)
     print(f'\tParameters: {get_num_params(unet):,}')
-    # EMA
+
+    # EMA UNet
     ema_flag = False
     if 'ema' in config:
         ema_flag = config['ema'].get('enabled', False)
@@ -239,7 +242,8 @@ def main(config_file):
         for bstep, batch in enumerate(progress_bar):
             # get x, labels, and encode the x
             x = batch[0].to(device)
-            x_lbls = torch.tensor([lbls_lut[item] for item in zip(*batch[1])]).to(device)
+            x_lbls = batch[1].to(device)
+            #x_lbls = torch.tensor([lbls_lut[item] for item in zip(*batch[1])]).to(device)
 
             with torch.cuda.amp.autocast(dtype=fp16, cache_enabled=False) and torch.no_grad():
                 if vq_model:
@@ -287,7 +291,7 @@ def main(config_file):
             # save generated images and checkpoints
             if step != 0 and (step+1) % sample_every == 0:
                 print(f'\n\tSampling at epoch {epoch+1} and step {step+1}')
-                sample_lbls = lbls_lut.sample(sampling_batch).to(device)
+                sample_lbls = sample_rnd_lbls(sampling_batch, classes)
                 sampling_size = (sampling_batch, enc_x.shape[1], enc_x.shape[2], enc_x.shape[3])
                 # sample
                 print('\t\tNon-EMA diffusion')
@@ -306,9 +310,6 @@ def main(config_file):
                 save_grid_imgs(all_images, max(1, all_images.shape[0] // grid_rows), f'{img_folder}/sample-s_{step+1}-e_{epoch+1}.jpg')
                 print(f'\nSaved at\n\t{img_folder}/sample-s_{step+1}-e_{epoch+1}.jpg\n')
                 torch.save(unet_raw.state_dict(), f'{chkpts}/sample_snapshot_unet.pt')
-                # save the LUT
-                with open(os.path.join(chkpts, 'LUT.pkl'), 'wb') as f:
-                    pickle.dump(lbls_lut, f)
                 if ema_unet:
                     print('\t\tNon-EMA diffusion')
                     t_sample_start = time.time()
@@ -332,7 +333,7 @@ def main(config_file):
             if step != 0 and (step+1) % save_every == 0:
                 torch.save(unet_raw.state_dict(), f'{chkpts}/snapshot_unet.pt')
                 checkpoint = {
-                    'lut': lbls_lut,
+                    'classes': classes,
                     'epoch': epoch,
                     'step': step,
                     'optimizer': optimizer.state_dict(),
@@ -355,12 +356,8 @@ def main(config_file):
                 with open(f'{chkpts}/snapshot_EMA_unet.pkl', 'wb') as f:
                     pickle.dump(ema_unet, f)
                 torch.save(ema_unet.ema_model.state_dict(), f'{chkpts}/snapshot_EMA_unet.pt')
-            # save the LUT
-            with open(os.path.join(chkpts, 'LUT.pkl'), 'wb') as f:
-                pickle.dump(lbls_lut, f)
 
             checkpoint = {
-                    'lut': lbls_lut,
                     'epoch': epoch,
                     'step': step,
                     'optimizer': optimizer.state_dict(),
@@ -380,16 +377,12 @@ def main(config_file):
 
     torch.save(unet_raw.state_dict(), f'{chkpts}/FINAL_model_e{epoch+1}.pt')
     print(f'Saved the final model at\n\t{chkpts}/FINAL_model_e{epoch+1}.pt')
-    # save the LUT
-    with open(os.path.join(chkpts, 'LUT.pkl'), 'wb') as f:
-        pickle.dump(lbls_lut, f)
 
     if ema_unet:
         with open(f'{chkpts}/FINAL_EMA-model_e{epoch+1}.pkl', 'wb') as f:
             pickle.dump(ema_unet, f)
         torch.save(ema_unet.ema_model.state_dict(), f'{chkpts}/FINAL-EMA_unet_e{epoch+1}.pt')
     checkpoint = {
-        'lut': lbls_lut,
         'epoch': epoch,
         'step': step,
         'optimizer': optimizer.state_dict(),

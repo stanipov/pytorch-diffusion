@@ -26,7 +26,7 @@ class Unet(nn.Module):
         attn_head_res = 32,
         self_condition = False,
         resnet_grnorm_groups = 4,
-        num_classes = None
+        classes = None
     ):
         """
         img_size             - assuming square image of (img_size, img_size)
@@ -38,7 +38,7 @@ class Unet(nn.Module):
         self_condition       - legace from Hugging Face implenetation. IDK
         resnet_grnorm_groups - numbers for group norm for each  ResNet blocks
         resnet_stacks        - number of ResNet blocks
-        num_classes          - number of classes
+        classes              - number of classes or list of integers for number of classes for each label/type
         down_mode:           - if "conv", then strided convolution is used, 
                              "avg" ot "max" - average2D or maxPool2D are used respectively 
         down_kern:           - Size of the pooling kernel, has effect only if down_mode is avg or max
@@ -125,9 +125,20 @@ class Unet(nn.Module):
         self.final_res_block = conv_unit(dim_in*2, img_size, time_emb_dim=time_dim) # dim * 2
         self.final_conv = nn.Conv2d(img_size, out_channels, 1)
         
-        if num_classes:
-            self.num_classes = num_classes
-            self.lbl_embeds = nn.Embedding(num_classes,time_dim)
+        if classes:
+            if type(classes) == int:
+                self.classes = [classes]
+            else:
+                self.classes = classes
+            # nn.Embeddings are commented out for now
+            # the new approach with MLP should be flexible
+            # when multi-class labels are supplied
+            #self.lbl_embeds = nn.Embedding(classes, time_dim)
+            self.lbl_embeds = nn.Sequential(*[
+                nn.Linear(len(self.classes), time_dim),
+                nn.GELU(),
+                nn.Linear(time_dim, time_dim)
+            ])
 
     def forward(self, x, time, x_self_cond=None, lbls = None):
         if self.self_condition:
@@ -187,8 +198,8 @@ def set_unet(config_dict):
     self_condition       = config_dict.pop('self_condition', False)
     resnet_grnorm_groups = config_dict.pop('resnet_grnorm_groups', 4)
     resnet_stacks        = config_dict.pop('resnet_stacks', 2)
-    num_classes          = config_dict.pop('num_classes', None)
-    down_mode            = config_dict.pop('num_classes', 'avg')
+    classes          = config_dict.pop('classes', None)
+    down_mode            = config_dict.pop('classes', 'avg')
     down_kern            = config_dict.pop('down_kern', 2)
     up_mode              = config_dict.pop('up_mode', 'bilinear')
     up_scale             = config_dict.pop('up_scale', 2)
@@ -205,7 +216,7 @@ def set_unet(config_dict):
         self_condition       = self_condition,
         resnet_grnorm_groups = resnet_grnorm_groups,
         resnet_stacks        = resnet_stacks, 
-        num_classes          = num_classes,
+        classes          = classes,
         down_mode            = down_mode, 
         down_kern            = down_kern,
         up_mode              = up_mode,

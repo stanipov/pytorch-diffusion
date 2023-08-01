@@ -48,7 +48,7 @@ class HUGGAN_Dataset(PtDataset):
         genre = res['genre']
         style = res['style']
         imgs = [self.transform(image) for image in images] if type(images) == list else [self.transform(images)]
-        return imgs, artists, genre, style
+        return imgs, torch.tensor([artists, genre, style]).T
 
 def hash_lbls(*args):
     return [hash(item) for item in zip(*args)]
@@ -129,7 +129,7 @@ def set_dataloader_unet_hf(config):
         if key != 'image':
             #total_lbls += hf_dataset.features[key].num_classes
             classes.append(hf_dataset.features[key].num_classes)
-    print(f'\t{sum(classes)} classes were found')
+    print(f'\t{len(classes)} classes were found')
 
     train_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size,
                                                shuffle=True, num_workers=dataloader_workers,

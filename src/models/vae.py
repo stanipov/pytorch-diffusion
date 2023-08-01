@@ -63,7 +63,7 @@ class VAE(nn.Module):
                                  attn_dim = attn_dim,
                                  tanh_out = dec_tanh_out)
 
-        self.pre_quantizer = WeightStandardizedConv2d(latent_dim *2, 2* embed_dim, kernel_size=1)
+        self.pre_quantizer = WeightStandardizedConv2d(latent_dim*2, 2*embed_dim, kernel_size=1)
         self.post_quantizer = WeightStandardizedConv2d(embed_dim, latent_dim, kernel_size=1)
         self.scaling_factor = scaling_factor
 

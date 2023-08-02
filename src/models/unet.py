@@ -198,7 +198,7 @@ def set_unet(config_dict):
     self_condition       = config_dict.pop('self_condition', False)
     resnet_grnorm_groups = config_dict.pop('resnet_grnorm_groups', 4)
     resnet_stacks        = config_dict.pop('resnet_stacks', 2)
-    classes          = config_dict.pop('classes', None)
+    classes              = config_dict.pop('classes', None)
     down_mode            = config_dict.pop('classes', 'avg')
     down_kern            = config_dict.pop('down_kern', 2)
     up_mode              = config_dict.pop('up_mode', 'bilinear')
@@ -216,7 +216,7 @@ def set_unet(config_dict):
         self_condition       = self_condition,
         resnet_grnorm_groups = resnet_grnorm_groups,
         resnet_stacks        = resnet_stacks, 
-        classes          = classes,
+        classes              = classes,
         down_mode            = down_mode, 
         down_kern            = down_kern,
         up_mode              = up_mode,

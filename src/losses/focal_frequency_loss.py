@@ -5,10 +5,13 @@ import torch
 import torch.nn as nn
 
 # version adaptation for PyTorch > 1.7.1
-IS_HIGH_VERSION = tuple(map(int, torch.__version__.split('+')[0].split('.'))) > (1, 7, 1)
+# Does not work with nightly builds
+#IS_HIGH_VERSION = tuple(map(int, torch.__version__.split('+')[0].split('.'))) > (1, 7, 1)
+IS_HIGH_VERSION = True
 if IS_HIGH_VERSION:
     import torch.fft
 
+import torch.fft
 
 class FocalFrequencyLoss(nn.Module):
     """The torch.nn.Module class that implements focal frequency loss - a

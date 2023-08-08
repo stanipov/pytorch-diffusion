@@ -48,7 +48,7 @@ class HUGGAN_Dataset(PtDataset):
         genre = res['genre']
         style = res['style']
         imgs = [self.transform(image) for image in images] if type(images) == list else [self.transform(images)]
-        return imgs, torch.tensor([artists, genre, style]).T
+        return imgs, artists, genre, style
 
 def hash_lbls(*args):
     return [hash(item) for item in zip(*args)]
@@ -56,7 +56,7 @@ def hash_lbls(*args):
 def collate_fn(batch):
     imgs, artists, genre, style = zip(*batch)
     imgs = torch.stack([y[0] for y in imgs ])
-    lbls = (artists, genre, style)
+    lbls = torch.tensor([artists, genre, style]).T #(artists, genre, style)
     return imgs, lbls
 
 

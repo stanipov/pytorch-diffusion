@@ -205,7 +205,7 @@ def set_unet(config_dict):
     up_scale             = config_dict.pop('up_scale', 2)
     attn_heads           = config_dict.pop('attn_heads', 4)
     attn_head_res        = config_dict.pop('attn_head_res', 16)
-    
+
     model = Unet(
         img_size             = img_size,
         init_dim             = init_dim,
@@ -232,7 +232,6 @@ def set_unet(config_dict):
 
     if weights:
         print(f'Loading model weights from\n\t{weights}')
-        #model.load_state_dict(torch.load(weights))
         model = partial_load_model(model, weights)
         
     return model

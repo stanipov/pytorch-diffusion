@@ -28,7 +28,7 @@ def sample_rnd_lbls(size, classes):
     rnd = []
     for num_items in classes:
         rnd.append(torch.randint(low=0, high=num_items-1, size = (size,)))
-    return torch.stack(rnd)
+    return torch.stack(rnd).float().T
 
 def main(config_file):
     with open(config_file, 'r') as f:
@@ -116,7 +116,7 @@ def main(config_file):
     # Set the UNet
     print('Setting up the UNet')
     unet_self_cond = config['unet_config'].get('self_condition', False)
-    config['unet_config']['num_classes'] = classes
+    config['unet_config']['classes'] = classes
     unet_raw = set_unet(config['unet_config'])
     if config['training']['compile']:
         unet = torch.compile(unet_raw).to(device)
@@ -242,8 +242,7 @@ def main(config_file):
         for bstep, batch in enumerate(progress_bar):
             # get x, labels, and encode the x
             x = batch[0].to(device)
-            x_lbls = batch[1].to(device)
-            #x_lbls = torch.tensor([lbls_lut[item] for item in zip(*batch[1])]).to(device)
+            x_lbls = batch[1].float().to(device)
 
             with torch.cuda.amp.autocast(dtype=fp16, cache_enabled=False) and torch.no_grad():
                 if vq_model:
@@ -292,6 +291,8 @@ def main(config_file):
             if step != 0 and (step+1) % sample_every == 0:
                 print(f'\n\tSampling at epoch {epoch+1} and step {step+1}')
                 sample_lbls = sample_rnd_lbls(sampling_batch, classes)
+                print(f'\t\t\samle lbls: {sample_lbls.shape}')
+                sample_lbls = sample_lbls.to(device)
                 sampling_size = (sampling_batch, enc_x.shape[1], enc_x.shape[2], enc_x.shape[3])
                 # sample
                 print('\t\tNon-EMA diffusion')

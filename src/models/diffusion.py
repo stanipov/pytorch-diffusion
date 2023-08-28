@@ -93,7 +93,7 @@ def generalized_steps(model_args, seq, model, b, eta):
             at = compute_alpha(b, t.long())
             at_next = compute_alpha(b, next_t.long())
             xt = xs[-1].to(x.device)
-            et = model(xt, t, x_self_cond=self_cond, lbls=clas_lbls)
+            et = model(xt, t, x_self_cond=self_cond, lbls=clas_lbls).detach()
             x0_t = (xt - et * (1 - at).sqrt()) / at.sqrt()
             x0_preds.append(x0_t.to('cpu'))
             c1 = (
@@ -193,7 +193,7 @@ class Diffusion():
     def p_sample(self, size, x_self_cond=None,
                  classes=None, last = True,
                  eta: float = 1.0):
-        """Posterior sample"""
+        """ Posterior sample """
         x = torch.randn(*size, device=self.dev)
         seq = range(0, self.timesteps, self.sample_every)
         seq = [int(s) for s in list(seq)]

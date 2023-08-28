@@ -1,7 +1,8 @@
-#!/ext4/pyenv/diffusers/bin/python
-
 #!/ext4/pyenv/diffusers_pt2n/bin/python
 
+
+#!/ext4/pyenv/diffusers/bin/python
+#!/ext4/pyenv/diffusers_pt2n/bin/python
 # !/home/sf/data/linux/pyenv/pt2/bin/python
 import torch
 
@@ -73,12 +74,17 @@ def main(config_file):
         torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = True
     torch.set_float32_matmul_precision('medium')
 
+    # Torch home folder for caching
+    torch.hub.set_dir(os.path.join(os.getcwd(),'torch_hub_models'))
+    os.environ['TORCH_HOME'] = os.path.join(os.getcwd(),'torch_hub_models')
+
+
     # for varying input sizes
-    #if config['training']['compile']:
-    #    #torch._dynamo.config.dynamic_shapes = True
-    #    torch._dynamo.config.assume_static_by_default = True
-    #    torch._dynamo.config.automatic_dynamic_shapes = True
-    #    torch._dynamo.config.suppress_errors = True
+    if config['training']['compile']:
+        #torch._dynamo.config.dynamic_shapes = True
+        torch._dynamo.config.assume_static_by_default = True
+        torch._dynamo.config.automatic_dynamic_shapes = True
+        torch._dynamo.config.suppress_errors = True
 
 
     # torch._dynamo.config.verbose=True

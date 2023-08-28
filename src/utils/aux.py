@@ -30,16 +30,8 @@ def save_grid_imgs(img_tensor, nrow, fname):
     """
     Saves a tensor into a grid image
     """
-    out = 0
-    grid_img = utils.make_grid(img_tensor.to('cpu'), nrow = nrow)
-    utils.save_image(grid_img, fp = fname)
-    #try:
-    #    grid_img = utils.make_grid(img_tensor.to('cpu'), nrow = nrow)
-    #    utils.save_image(grid_img, fp = fname)
-    #except Exception as err:
-    #    out = 1
-    #return out
-
+    grid_img = utils.make_grid(img_tensor, nrow=nrow)
+    utils.save_image(grid_img, fp=fname)
 
 def show_grid_tensor(x, nrow = 8):
     T2img    = ToPILImage()

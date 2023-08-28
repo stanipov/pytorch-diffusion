@@ -1,6 +1,9 @@
 #!/ext4/pyenv/diffusers/bin/python
+#!/ext4/pyenv/diffusers_pt2n/bin/python
+#!/ext4/pyenv/diffusers/bin/python
 #!/home/sf/data/linux/pyenv/pt2/bin/python
 #
+
 import pickle
 
 import torch
@@ -20,6 +23,7 @@ from src.train.util import set_ema_model
 
 # to avoid IO errors with massive reading of the files
 import torch.multiprocessing
+import gc
 torch.multiprocessing.set_sharing_strategy('file_system')
 
 
@@ -28,7 +32,7 @@ def sample_rnd_lbls(size, classes):
     rnd = []
     for num_items in classes:
         rnd.append(torch.randint(low=0, high=num_items-1, size = (size,)))
-    return torch.stack(rnd).float().T
+    return torch.stack(rnd).long().T
 
 def main(config_file):
     with open(config_file, 'r') as f:
@@ -47,11 +51,7 @@ def main(config_file):
     print(msg)
     print('\nThis config will be used\n')
     pprint(config)
-
-    with open(config_file, 'r') as f:
-        config = json.load(f)
-    print('\nThis config will be used\n')
-    pprint(config)
+    print("\n==============================================================\n")
 
     # ----------------------------------------------
     # Preconfig
@@ -89,7 +89,6 @@ def main(config_file):
 
     # Dataloader
     train_loader, classes = set_dataloader_unet(config)
-    num_classes = len(classes)
 
     # mixed precision
     if 'bfloat' in config['training']['fp16'] or 'bf16' in config['training']['fp16']:
@@ -152,8 +151,8 @@ def main(config_file):
         raise ValueError
     if config['lr_scheduler']['type'].lower() == 'onecyclelr':
         config['lr_scheduler']['epochs'] = num_epochs
-        config['lr_scheduler']['steps_per_epoch'] = int(
-            np.ceil(len(train_loader) / config['training']['grad_step_acc']))
+        config['lr_scheduler']['total_steps'] = int(np.ceil(len(train_loader) * num_epochs / config['training']['grad_step_acc']))
+        #int(np.ceil(len(train_loader) / config['training']['grad_step_acc']))  # steps_per_epoch
     scheduler = set_lr_scheduler(config['lr_scheduler'], optimizer)
 
     if fp16:
@@ -182,7 +181,7 @@ def main(config_file):
                      sample_every=ddim_skip,
                      device=device)
 
-    if ema_unet:
+    if ema_unet and config["diffusion"].get("ema_sample", False):
         ema_diffusion = Diffusion(noise_dict, ema_unet.ema_model, timesteps,
                          loss=loss_type,
                          sample_every=ddim_skip,
@@ -242,7 +241,7 @@ def main(config_file):
         for bstep, batch in enumerate(progress_bar):
             # get x, labels, and encode the x
             x = batch[0].to(device)
-            x_lbls = batch[1].float().to(device)
+            x_lbls = batch[1].long().to(device)
 
             with torch.cuda.amp.autocast(dtype=fp16, cache_enabled=False) and torch.no_grad():
                 if vq_model:
@@ -253,9 +252,8 @@ def main(config_file):
             # calculate the loss
             t = torch.randint(0, timesteps, (x.shape[0],), device=device).long()
             with torch.cuda.amp.autocast(dtype=fp16):
-                loss = diffusion.get_loss(enc_x, t, noise=None, x_self_cond=unet_self_cond, classes=x_lbls)
-                loss = loss / grad_step_acc
-            
+                loss = diffusion.get_loss(enc_x.detach(), t, noise=None, x_self_cond=unet_self_cond, classes=x_lbls) / grad_step_acc
+
             # Accumulates scaled (not scaled) gradients
             if scaler:
                 scaler.scale(loss).backward()
@@ -263,23 +261,31 @@ def main(config_file):
                 loss.backward()
             
             # update scaler, optimizer, and backpropagate
-            if step != 0 and step % grad_step_acc == 0  or (bstep+1) == len(train_loader):
+            if step != 0 and step % grad_step_acc == 0 or (bstep+1) == len(train_loader):
                 if scaler:
                     scaler.step(optimizer)
                     scaler.update()
-                    optimizer.zero_grad(set_to_none = True)
+                    optimizer.zero_grad(set_to_none=True)
                 else:                   
                     optimizer.step()
-                    optimizer.zero_grad(set_to_none = True)
-                # update EMA model
-                if ema_unet:
-                    ema_unet.update()
+                    optimizer.zero_grad(set_to_none=True)
 
+                if scheduler:
+                    try:
+                        scheduler.step()
+                    except Exception as E:
+                        print(E)
+
+            # update EMA model
+            if ema_unet:
+                ema_unet.update()
+
+            # collect for log
             if scheduler:
                 lr = scheduler.get_last_lr()[0]
             else:
                 lr = 0
-            losses.append([loss.item(), lr])
+            losses.append([loss.detach().item(), lr])
             epoch_avg_loss += losses[-1][0]
             
             msg_dict = {
@@ -291,8 +297,7 @@ def main(config_file):
             if step != 0 and (step+1) % sample_every == 0:
                 print(f'\n\tSampling at epoch {epoch+1} and step {step+1}')
                 sample_lbls = sample_rnd_lbls(sampling_batch, classes)
-                print(f'\t\t\samle lbls: {sample_lbls.shape}')
-                sample_lbls = sample_lbls.to(device)
+                sample_lbls = sample_lbls.float().to(device)
                 sampling_size = (sampling_batch, enc_x.shape[1], enc_x.shape[2], enc_x.shape[3])
                 # sample
                 print('\t\tNon-EMA diffusion')
@@ -302,34 +307,51 @@ def main(config_file):
                                                  x_self_cond=unet_self_cond,
                                                  classes=sample_lbls,
                                                  last=True, eta=eta)
-                print(f'\tSampled in {(time.time() - t_sample_start):.2f} sec.')
+                print(f'\n\tSampled in {(time.time() - t_sample_start):.2f} sec.')
                 # decode
                 with torch.cuda.amp.autocast(dtype=fp16, cache_enabled=False) and torch.no_grad():
-                    Y = autoencoder.decode(samples.to(device)/autoencoder.scaling_factor)
+                    Y = autoencoder.decode(samples.detach().to(device)/autoencoder.scaling_factor)
                 # unscale, make the grid, and save
+                Y = Y.detach().to('cpu')
                 all_images = unscale_tensor(Y)
                 save_grid_imgs(all_images, max(1, all_images.shape[0] // grid_rows), f'{img_folder}/sample-s_{step+1}-e_{epoch+1}.jpg')
                 print(f'\nSaved at\n\t{img_folder}/sample-s_{step+1}-e_{epoch+1}.jpg\n')
                 torch.save(unet_raw.state_dict(), f'{chkpts}/sample_snapshot_unet.pt')
-                if ema_unet:
-                    print('\t\tNon-EMA diffusion')
+
+                # save checkpoint
+                checkpoint = {
+                    'classes': classes,
+                    'epoch': epoch,
+                    'step': step,
+                    'optimizer': optimizer.state_dict(),
+                    'scaler': scaler.state_dict() if scaler else None,
+                    'scheduler': scheduler.state_dict() if scheduler else None
+                }
+                torch.save(checkpoint, f'{chkpts}/train_snapshot.pt')
+
+                if ema_diffusion:
+                    print('\t\tEMA diffusion')
                     t_sample_start = time.time()
                     with torch.cuda.amp.autocast(dtype=fp16, cache_enabled=False) and torch.no_grad():
                         samples = ema_diffusion.p_sample(sampling_size,
                                                      x_self_cond=unet_self_cond,
                                                      classes=sample_lbls,
                                                      last=True, eta=eta)
-                    print(f'\tSampled in {(time.time() - t_sample_start):.2f} sec.')
+                    print(f'\n\tSampled in {(time.time() - t_sample_start):.2f} sec.')
                     # decode
                     with torch.cuda.amp.autocast(dtype=fp16, cache_enabled=False) and torch.no_grad():
-                        Y = autoencoder.decode(samples.to(device) / autoencoder.scaling_factor)
+                        Y = autoencoder.decode(samples.detach().to(device) / autoencoder.scaling_factor)
                     # unscale, make the grid, and save
+                    Y = Y.detach().to('cpu')
                     all_images = unscale_tensor(Y)
                     save_grid_imgs(all_images, max(1, all_images.shape[0] // grid_rows),
                                    f'{img_folder}/EMA_sample-s_{step + 1}-e_{epoch + 1}.jpg')
-                    with open(f'{chkpts}/sample_snapshot_FULL-EMA_unet.pkl', 'wb') as f:
-                        pickle.dump(ema_unet, f)
+                    #with open(f'{chkpts}/sample_snapshot_FULL-EMA_unet.pkl', 'wb') as f:
+                    #    pickle.dump(ema_unet, f)
                     torch.save(ema_unet.ema_model.state_dict(), f'{chkpts}/sample_snapshot_EMA_unet.pt')
+
+                del Y, all_images
+                gc.collect()
                 
             if step != 0 and (step+1) % save_every == 0:
                 torch.save(unet_raw.state_dict(), f'{chkpts}/snapshot_unet.pt')
@@ -344,18 +366,12 @@ def main(config_file):
                 torch.save(checkpoint, f'{chkpts}/train_chkpt_s{step+1}-e{epoch+1}.pt')
 
             step += 1
-                
-        if scheduler:
-            try:
-                scheduler.step()
-            except Exception as E:
-                print(E)
-        
+
         if save_snapshot:
             torch.save(unet_raw.state_dict(), f'{chkpts}/snapshot_unet.pt')
             if ema_unet:
-                with open(f'{chkpts}/snapshot_EMA_unet.pkl', 'wb') as f:
-                    pickle.dump(ema_unet, f)
+                #with open(f'{chkpts}/snapshot_EMA_unet.pkl', 'wb') as f:
+                #    pickle.dump(ema_unet, f)
                 torch.save(ema_unet.ema_model.state_dict(), f'{chkpts}/snapshot_EMA_unet.pt')
 
             checkpoint = {
@@ -374,7 +390,7 @@ def main(config_file):
         t = np.array(losses)
         np.savetxt(m_loss_fname, t, header='loss, lr', delimiter=",")
         print(msg)
-
+        gc.collect()
 
     torch.save(unet_raw.state_dict(), f'{chkpts}/FINAL_model_e{epoch+1}.pt')
     print(f'Saved the final model at\n\t{chkpts}/FINAL_model_e{epoch+1}.pt')
@@ -399,7 +415,6 @@ def main(config_file):
     else:
         dt /= 60
         print(f'Finished training in {dt} min.')
-    print(f'Tra')
     return 0
                 
         

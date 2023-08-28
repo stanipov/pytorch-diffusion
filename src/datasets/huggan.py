@@ -32,8 +32,8 @@ class HUGGAN_Dataset(PtDataset):
             v2.RandomHorizontalFlip(flip_prob),
             v2.RandomVerticalFlip(flip_prob),
             v2.RandomAdjustSharpness(sharpness_factor=3, p=0.75),
-            v2.ColorJitter(brightness=0.0, contrast=0.05, saturation=0.1, hue=0.1),
-            v2.AugMix(interpolation=transforms.InterpolationMode.BILINEAR, severity=3),
+            v2.ColorJitter(brightness=0.05, contrast=0.05, saturation=0.1, hue=0.1),
+            #v2.AugMix(interpolation=transforms.InterpolationMode.BILINEAR, severity=3),
             SquarePad(),
             v2.ToTensor(),
             transforms.Lambda(lambda t: (t * 2) - 1)])
@@ -55,8 +55,8 @@ def hash_lbls(*args):
 
 def collate_fn(batch):
     imgs, artists, genre, style = zip(*batch)
-    imgs = torch.stack([y[0] for y in imgs ])
-    lbls = torch.tensor([artists, genre, style]).T #(artists, genre, style)
+    imgs = torch.stack([y[0] for y in imgs])
+    lbls = torch.tensor([artists, genre, style]).T
     return imgs, lbls
 
 
@@ -108,7 +108,6 @@ def set_dataloader_unet_hf(config):
     flip_prob = config['dataset'].get('flip_prob', 0.0)
     if use_subset:
         use_subset = float(use_subset)
-    img_resize = config['dataset']['img_resize']
 
     print('Setting the dataset')
     hf_dataset = load_dataset('huggan/wikiart', split="train", cache_dir=root)
@@ -133,7 +132,7 @@ def set_dataloader_unet_hf(config):
 
     train_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size,
                                                shuffle=True, num_workers=dataloader_workers,
-                                               pin_memory=True, collate_fn=collate_fn)
+                                               pin_memory=False, collate_fn=collate_fn)
     print('Done')
     return train_loader, classes
 
@@ -192,7 +191,6 @@ def set_dataloader_disc_hf(config):
     dataloader_workers = int(config['training']['dataloader_workers'])
     if use_subset:
         use_subset = float(use_subset)
-    img_resize = config['dataset']['img_resize']
 
     print('Setting the dataset')
     hf_dataset = load_dataset('huggan/wikiart', split="train", cache_dir=root)
